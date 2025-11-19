@@ -1,0 +1,26 @@
+
+
+
+
+
+x Make swing nicer ... Apply force for a while? Imagine base ball bat
+x Make long cat spawning pause (or slow down game a lot)
+x Make long cat spawnable X times (add HUD)
+x fix fixed timestep
+
+
+
+x make boxes look nicer
+x add some slopes
+x multiple levels
+x different colors for different levels
+x sound / music
+x menu choose level
+- add nice bg gfx
+- make boxes look even nicer
+
+
+
+no:
+- add nice tile gfx
+- look at squishy on impact -- rlgl scale?

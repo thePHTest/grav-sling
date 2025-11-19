@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+    <title>Odin + Raylib on the web</title>
+    <meta name="title" content="Odin + Raylib on the web">
+    <meta name="description" content="Make games using Odin + Raylib that work in the browser">
+    <meta name="viewport" content="width=device-width">
+
+    <style>
+        body { 
+          margin: 0px; 
+          overflow: hidden; 
+          background-color: black;
+        }
+        canvas.game_canvas { 
+          border: 0px none; 
+          background-color: black;
+          padding-left: 0;
+          padding-right: 0;
+          margin-left: auto;
+          margin-right: auto;
+          display: block;
+        }
+    </style>
+    </head>
+    <body>
+        <canvas class="game_canvas" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+        <p id="output" />
+        <script type="text/javascript" src="odin.js"></script>
+        <script>
+            var odinMemoryInterface = new odin.WasmMemoryInterface();
+            odinMemoryInterface.setIntSize(4);
+            var odinImports = odin.setupDefaultImports(odinMemoryInterface);
+
+            var Module = {
+                // This is called by emscripten when it starts up.
+                instantiateWasm: (imports, successCallback) => {
+                    const newImports = {
+                        ...odinImports,
+                        ...imports
+                    }
+
+                    return WebAssembly.instantiateStreaming(fetch("index.wasm"), newImports).then(function(output) {
+                        odinMemoryInterface.setExports(output.instance.exports)
+                        odinMemoryInterface.setMemory(output.instance.exports.memory)
+                        successCallback(output.instance);
+                        return output.instance.exports;
+                    });
+                },
+                print: (function() {
+                    var element = document.getElementById("output");
+                    if (element) element.value = ''; // clear browser cache
+                    return function(text) {
+                        if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                        console.log(text);
+                        if (element) {
+                          element.value += text + "\n";
+                          element.scrollTop = element.scrollHeight; // focus on bottom
+                        }
+                    };
+                })(),
+                canvas: (function() {
+                    return document.getElementById("canvas");
+                })()
+            };
+        </script>
+        {{{ SCRIPT }}}
+    </body>
+</html>
