@@ -2,7 +2,6 @@ package game
 
 import b2 "box2d"
 import rl "vendor:raylib"
-import "core:fmt"
 import "core:mem"
 import "core:strings"
 
@@ -12,7 +11,6 @@ Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
-	lc: Long_Cat,
 	tuna: Vec2,
 	walls: [dynamic]Wall,
 	//tiles: [dynamic]Tile,
@@ -22,7 +20,6 @@ Game_Memory :: struct {
 	es: Editor_State,
 	time_accumulator: f32,
 
-	long_cat_spawns: int,
 	won: bool,
 	won_at: f64,
 
@@ -212,20 +209,7 @@ update :: proc() {
 		g_mem.time_accumulator -= PHYSICS_STEP
 	}
 
- 	long_cat_update(&g_mem.lc)
 	round_cat_update(&g_mem.rc)
-
-	if rl.IsMouseButtonPressed(.LEFT) {
-		if (g_mem.lc.state == .Done || g_mem.lc.state == .Not_Spawned) {
-			g_mem.long_cat_spawns += 1
-
-			if g_mem.lc.state == .Done {
-				long_cat_delete(g_mem.lc)
-			}
-
-			g_mem.lc = long_cat_make(get_world_mouse_pos(game_camera()))
-		}
-	}
 
 	if round_cat_pos(g_mem.rc).y < -300 {
 		load_level(g_mem.current_level)
@@ -258,7 +242,6 @@ draw_world :: proc() {
 
 	rl.EndShaderMode()
 	
-	long_cat_draw(g_mem.lc)
 }
 
 draw :: proc() {
@@ -331,8 +314,6 @@ draw :: proc() {
 		rl.BeginMode2D(ui_camera())
 
 
-		rl.DrawTextEx(font, fmt.ctprintf("%v", g_mem.long_cat_spawns), {10, PIXEL_WINDOW_HEIGHT - 30}, 20, 0, rl.WHITE)
-
 		if g_mem.finished {
 			rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
 		} else if g_mem.won {
@@ -400,7 +381,8 @@ init_window :: proc() {
 
 Vec2 :: [2]f32
 Rect :: rl.Rectangle
-GRAVITY :: Vec2 {0, -9.82*10}
+//GRAVITY :: Vec2 {0, -9.82*10}
+GRAVITY :: Vec2 {0, 0}
 
 Wall :: struct {
 	body: b2.BodyId,
@@ -495,7 +477,6 @@ load_level :: proc(level_idx: int) -> bool {
 	g_mem.physics_world = b2.CreateWorld(world_def)
 
 	g_mem.walls = {}
-	g_mem.long_cat_spawns = 0
 	for w in level.walls {
 		make_wall(w.rect, w.rot)
 	}
@@ -503,7 +484,6 @@ load_level :: proc(level_idx: int) -> bool {
 	g_mem.tuna = level.tuna_pos
 	g_mem.starting_pos = level.starting_pos
 	g_mem.rc = round_cat_make(g_mem.starting_pos)
-	g_mem.lc.state = .Not_Spawned
 	return true
 }
 

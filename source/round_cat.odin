@@ -4,6 +4,7 @@ import b2 "box2d"
 import rl "vendor:raylib"
 import "core:fmt"
 import "core:math"
+import la "core:math/linalg"
 
 _ :: math
 _ :: fmt
@@ -107,18 +108,34 @@ round_cat_update :: proc(rc: ^Round_Cat) {
 	for &c in contact_data {
 		vel := c.manifold.points[0].normalVelocity
 
-		if abs(vel) > 10 && c.shapeIdA != g_mem.lc.shape && c.shapeIdB != g_mem.lc.shape {
+		if abs(vel) > 10 {
 			rl.PlaySound(g_mem.land_sound)
 		}
 	}
 
+	force : f32 = 1000.0
+	dir : Vec2 = proc() -> Vec2 {
+		result : Vec2
+		if rl.IsKeyDown(.W) {
+			result.y = 1.0
+		} else if rl.IsKeyDown(.S) {
+			result.y = -1.0
+		}
+		
+		if rl.IsKeyDown(.A) {
+			result.x = -1.0
+		} else if rl.IsKeyDown(.D) {
+			result.x = 1.0
+		}
+		return la.normalize0(result)
+	}()
 
-	/*if rl.IsMouseButtonPressed(.LEFT) {
-		pp := round_cat_pos(rc^)
-		mp := get_world_mouse_pos()
-
-		dist := pp - mp
-
-		b2.Body_ApplyLinearImpulseToCenter(rc.body, dist*20, true)
-	}*/
+	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
+	
+	max_velocity :: 20.0
+	current_velocity := b2.Body_GetLinearVelocity(rc.body)
+	if la.length(current_velocity) > max_velocity {
+		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)
+	}
+	
 }
