@@ -42,6 +42,8 @@ round_cat_make :: proc(pos: Vec2) -> Round_Cat {
 
 	shape := b2.CreateCapsuleShape(body, sd, capsule)
 
+	fmt.println(body)
+	fmt.println(shape)
 	return {
 		body = body,
 		shape = shape,
@@ -86,21 +88,6 @@ round_cat_draw :: proc(rc: Round_Cat) {
 }
 
 round_cat_update :: proc(rc: ^Round_Cat) {
-	tuna_circle := b2.Circle {
-		center = g_mem.tuna,
-		radius = 1,
-	}
-
-	tuna_circle_transf := b2.Transform {		
-		p = tuna_circle.center,
-	}
-
-	coll := b2.CollideCapsuleAndCircle(b2.Shape_GetCapsule(rc.shape), b2.Body_GetTransform(rc.body), tuna_circle, tuna_circle_transf)
-
-	if !g_mem.won && coll.pointCount > 0 {
-		got_tuna()
-	}
-
 	contact_cap := b2.Body_GetContactCapacity(rc.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
 	contact_data = b2.Body_GetContactData(rc.body, contact_data)

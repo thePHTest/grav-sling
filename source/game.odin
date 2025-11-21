@@ -2,6 +2,7 @@ package game
 
 import b2 "box2d"
 import rl "vendor:raylib"
+import "core:fmt"
 import "core:mem"
 import "core:strings"
 
@@ -11,22 +12,13 @@ Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
-	tuna: Vec2,
-	walls: [dynamic]Wall,
-	//tiles: [dynamic]Tile,
 	atlas: rl.Texture2D,
 
-	editing: bool,
-	es: Editor_State,
 	time_accumulator: f32,
 
 	won: bool,
 	won_at: f64,
 
-	background_shader: rl.Shader,
-	ground_shader: rl.Shader,
-
-	current_level: int,
 	finished: bool,
 	font: rl.Font,
 
@@ -35,10 +27,6 @@ Game_Memory :: struct {
 	hit_sound: rl.Sound,
 	land_sound: rl.Sound,
 	win_sound: rl.Sound,
-
-
-	in_menu: bool,
-	hovered_menu_item: int,
 }
 
 levels := [?]string {
@@ -64,7 +52,7 @@ game_camera :: proc() -> rl.Camera2D {
 
 	return {
 		zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
-		target = vec2_flip(round_cat_pos(g_mem.rc) + {0, 1.5}),
+		target = vec2_flip(round_cat_pos(g_mem.rc)),
 		offset = { w/2, h/2 },
 	}
 }
@@ -77,17 +65,6 @@ ui_camera :: proc() -> rl.Camera2D {
 
 physics_world :: proc() -> b2.WorldId {
 	return g_mem.physics_world
-}
-
-Level_Wall :: struct {
-	rect: Rect,
-	rot: f32,
-}
-
-Level :: struct {
-	walls: []Level_Wall,
-	tuna_pos: Vec2,
-	starting_pos: Vec2,
 }
 
 dt: f32
@@ -108,11 +85,7 @@ update :: proc() {
 	}
 
 	if rl.IsKeyPressed(.ESCAPE) {
-		delete_current_level()
-		g_mem.in_menu = true
-		g_mem.finished = false
-		g_mem.won = false
-		return
+		// TODO: Menu
 	}
 
 	if g_mem.finished {
@@ -124,79 +97,7 @@ update :: proc() {
 
 		if rl.IsMouseButtonPressed(.LEFT) && rl.GetTime() > g_mem.won_at + 0.5 {
 			g_mem.won = false
-
-			if g_mem.current_level == len(levels) - 1 {
-				g_mem.finished = true
-				g_mem.won_at = rl.GetTime()
-			} else {
-				load_level(g_mem.current_level + 1)	
-			}
 		}
-		return
-	}
-
-	if !g_mem.in_menu && rl.IsKeyPressed(.F2) {
-		if g_mem.editing {
-			level := Level {
-				walls = make([]Level_Wall, len(g_mem.walls), context.temp_allocator),
-				tuna_pos = g_mem.tuna,
-				starting_pos = g_mem.starting_pos,
-			}
-
-			for w, i in g_mem.walls {
-				level.walls[i].rect = w.rect
-				level.walls[i].rot = w.rot
-			}
-
-			save_level_data(g_mem.current_level, level)
-		}
-
-		g_mem.editing = !g_mem.editing
-	}
-
-	if g_mem.editing {
-		editor_update(&g_mem.es)
-		return
-	}
-
-	if rl.IsKeyPressed(.ONE) {
-		load_level(0)
-	}
-
-	if rl.IsKeyPressed(.TWO) {
-		load_level(1)
-	}
-
-	if rl.IsKeyPressed(.THREE) {
-		load_level(2)
-	}
-
-	if g_mem.in_menu {
-
-		g_mem.hovered_menu_item = -1
-
-		rects := [?]Rect {
-			rect_from_pos_size(LEVEL_1_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(LEVEL_2_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(LEVEL_3_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(QUIT_POS - {10, 0}, MENU_BUTTON_SIZE),
-		}
-
-		for r, i in rects {
-			if rl.CheckCollisionPointRec(rl.GetScreenToWorld2D(rl.GetMousePosition(), ui_camera()), r) {
-				g_mem.hovered_menu_item = i
-
-				if rl.IsMouseButtonPressed(.LEFT) {
-					if i < len(rects) - 1 {
-						load_level(i)
-						g_mem.in_menu = false
-					} else {
-						rl.CloseWindow()
-					}
-				}
-			}
-		}
-
 		return
 	}
 
@@ -210,10 +111,6 @@ update :: proc() {
 	}
 
 	round_cat_update(&g_mem.rc)
-
-	if round_cat_pos(g_mem.rc).y < -300 {
-		load_level(g_mem.current_level)
-	}
 }
 
 Collision_Category :: enum u32 {
@@ -225,104 +122,33 @@ Collision_Category :: enum u32 {
 COLOR_WALL :: rl.Color { 16, 220, 117, 255 }
 
 draw_world :: proc() {
-	{
-		tuna_source := atlas_textures[.Tuna].rect
-		dest := draw_dest_rect(g_mem.tuna, tuna_source)
-		rl.DrawTexturePro(atlas, tuna_source, dest, {dest.width/2, dest.height/2}, 0, rl.WHITE)
-	}
-
 	round_cat_draw(g_mem.rc)
-
-	rl.BeginShaderMode(g_mem.ground_shader)
-
-	for &w in g_mem.walls {
-		mid := Vec2 {w.rect.width/2, w.rect.height/2}
-		rl.DrawRectanglePro(rect_offset(rect_flip(w.rect), mid), mid, -w.rot*RAD2DEG, COLOR_WALL)
-	}
-
-	rl.EndShaderMode()
-	
 }
 
 draw :: proc() {
 	//debug_draw()
-	if g_mem.editing {
-		editor_draw(g_mem.es)
-	} else if g_mem.in_menu {
-		rl.BeginDrawing()
-		time_loc := rl.GetShaderLocation(g_mem.background_shader, "time")
-		t := f32(rl.GetTime())
-		rl.BeginShaderMode(g_mem.background_shader)
-		rl.SetShaderValue(g_mem.background_shader, time_loc, &t, .FLOAT)
-		rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
-		rl.EndShaderMode()
-		rl.BeginMode2D(ui_camera())
+	rl.BeginDrawing()
+	//t := f32(rl.GetTime())
+	game_cam := game_camera()
 
-		rl.DrawTextEx(font, "THE LEGEND OF TUNA", {70, 30}, 30, 0, rl.WHITE)
+	rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
+	rl.ClearBackground({0, 120, 153, 255})
+	rl.BeginMode2D(game_cam)
 
-		rl.DrawTextureRec(atlas, atlas_textures[.Round_Cat].rect, {35, 30}, rl.WHITE)
-		rl.DrawTextureRec(atlas, atlas_textures[.Long_Cat].rect, {15, 10}, rl.WHITE)
+	draw_world()
 
-		rl.DrawTextureRec(atlas, atlas_textures[.Tuna].rect, {240, 10}, rl.WHITE)
-
-		rects := [?]Rect {
-			rect_from_pos_size(LEVEL_1_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(LEVEL_2_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(LEVEL_3_POS - {10, 0}, MENU_BUTTON_SIZE),
-			rect_from_pos_size(QUIT_POS - {10, 0}, MENU_BUTTON_SIZE),
-		}
+	rl.EndMode2D()
+	rl.BeginMode2D(ui_camera())
 
 
-		rl.DrawTextEx(font, "by Karl Zylinski", {205, 55}, 15, 0, rl.WHITE)
-
-		if g_mem.hovered_menu_item >= 0 && g_mem.hovered_menu_item < len(rects) {
-			button_bg := rl.Color { 50, 70, 200, 120 }
-			rl.DrawRectangleRec(rects[g_mem.hovered_menu_item], button_bg)
-		}
-
-		rl.DrawTextEx(font, "Level 1", LEVEL_1_POS, 20, 0, rl.WHITE)
-
-		rl.DrawTextEx(font, "Level 2", LEVEL_2_POS, 20, 0, rl.WHITE)
-
-		rl.DrawTextEx(font, "Level 3", LEVEL_3_POS, 20, 0, rl.WHITE)
-
-		rl.DrawTextEx(font, "No More Tuna!", QUIT_POS, 20, 0, rl.WHITE)
-
-		rl.DrawTextEx(font, "Controls: Mouse + Left Mouse Button", {70, PIXEL_WINDOW_HEIGHT-15} , 12, 0, rl.WHITE)
-
-		rl.EndMode2D()
-		rl.EndDrawing()
-	} else {
-		rl.BeginDrawing()
-		time_loc := rl.GetShaderLocation(g_mem.background_shader, "time")
-
-		camera_pos_loc := rl.GetShaderLocation(g_mem.background_shader, "cameraPos")
-		t := f32(rl.GetTime())
-		rl.SetShaderValue(g_mem.background_shader, time_loc, &t, .FLOAT)
-		game_cam := game_camera()
-		rl.SetShaderValue(g_mem.background_shader, camera_pos_loc, &game_cam.target, .VEC2)
-		rl.BeginShaderMode(g_mem.background_shader)
-
-		rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
-		//rl.ClearBackground({0, 120, 153, 255})
-		rl.EndShaderMode()
-		rl.BeginMode2D(game_cam)
-
-		draw_world()
-
-		rl.EndMode2D()
-		rl.BeginMode2D(ui_camera())
-
-
-		if g_mem.finished {
-			rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
-		} else if g_mem.won {
-			rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
-		}
-
-		rl.EndMode2D()
-		rl.EndDrawing()
+	if g_mem.finished {
+		rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
+	} else if g_mem.won {
+		rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
 	}
+
+	rl.EndMode2D()
+	rl.EndDrawing()
 }
 
 LEVEL_1_POS :: Vec2 {70, 70+10}
@@ -369,7 +195,7 @@ init_window :: proc() {
 	}
 
 	rl.SetConfigFlags(flags)
-	rl.InitWindow(1280, 720, "The Legend of Tuna")
+	rl.InitWindow(1920, 1080, "The Legend of Tuna")
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(500)
 	rl.InitAudioDevice()
@@ -384,108 +210,13 @@ Rect :: rl.Rectangle
 //GRAVITY :: Vec2 {0, -9.82*10}
 GRAVITY :: Vec2 {0, 0}
 
-Wall :: struct {
-	body: b2.BodyId,
-	shape: b2.ShapeId,
-	rect: Rect,
-	rot: f32,
-}
-
 WORLD_SCALE :: 10.0
-
-make_wall :: proc(r: Rect, rot: f32) {
-	w := Wall {
-		rect = r,
-		rot = rot,
-	}
-
-	body_def := b2.DefaultBodyDef()
-	body_def.position = b2.Vec2{r.x + r.width/2, r.y + r.height/2}
-	body_def.rotation = b2.MakeRot(rot)
-	w.body = b2.CreateBody(physics_world(), body_def)
-
-	box := b2.MakeBox((r.width/2), (r.height/2))
-	shape_def := b2.DefaultShapeDef()
-	shape_def.friction = 0.7
-	shape_def.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Wall }),
-		maskBits = u32(bit_set[Collision_Category] { .Round_Cat, .Long_Cat }),
-	}
-
-	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)
-	append(&g_mem.walls, w)
-}
-
-delete_wall :: proc(w: Wall) {
-	b2.DestroyShape(w.shape)
-	b2.DestroyBody(w.body)
-}
 
 ATLAS_DATA :: #load("../assets/atlas.png")
 HIT_SOUND :: #load("../sounds/hit.wav")
 LAND_SOUND :: #load("../sounds/land.wav")
 WIN_SOUND :: #load("../sounds/win.wav")
-
-delete_current_level :: proc() {
-	if g_mem.physics_world != {} {
-		b2.DestroyWorld(g_mem.physics_world)
-	}
-	g_mem.physics_world = {}
-	delete(g_mem.walls)
-	g_mem.walls = {}
-}
-
 Vec3 :: [3]f32
-
-load_level :: proc(level_idx: int) -> bool {
-	delete_current_level()
-
-	level, level_ok := load_level_data(level_idx)
-
-	if !level_ok {
-		return false
-	}
-
-	g_mem.current_level = level_idx
-	color1_loc := rl.GetShaderLocation(g_mem.ground_shader, "groundColor1")
-	color2_loc := rl.GetShaderLocation(g_mem.ground_shader, "groundColor2")
-	color3_loc := rl.GetShaderLocation(g_mem.ground_shader, "groundColor3")
-	
-	c1 := Vec3 {0.44, 0.69, 0.3}
-	c2 := Vec3 {0.2, 0.37, 0.15}
-	c3 := Vec3 {0.3, 0.15, 0.13}
-
-	if level_idx == 1 {
-		c1 = {0.5, 0.49, 0.2}
-		c2 = {0.77, 0.4, 0.15}
-		c3 = {0.15, 0.3, 0.3}
-	}
-
-	if level_idx == 2 {
-		c1 = {0.7, 0.3, 0.3}
-		c2 = {0.4, 0.4, 0.5}
-		c3 = {0.2, 0.1, 0.2}
-	}
-
-	rl.SetShaderValue(g_mem.ground_shader, color1_loc, &c1, .VEC3)
-	rl.SetShaderValue(g_mem.ground_shader, color2_loc, &c2, .VEC3)
-	rl.SetShaderValue(g_mem.ground_shader, color3_loc, &c3, .VEC3)
-
-	world_def := b2.DefaultWorldDef()
-	world_def.gravity = GRAVITY
-	world_def.enableContinous = true
-	g_mem.physics_world = b2.CreateWorld(world_def)
-
-	g_mem.walls = {}
-	for w in level.walls {
-		make_wall(w.rect, w.rot)
-	}
-
-	g_mem.tuna = level.tuna_pos
-	g_mem.starting_pos = level.starting_pos
-	g_mem.rc = round_cat_make(g_mem.starting_pos)
-	return true
-}
 
 SHADERS_DIR :: "../shaders"
 
@@ -499,26 +230,16 @@ temp_cstring :: proc(s: string) -> cstring {
 
 
 init :: proc() {
+	fmt.println("init")
 	g_mem = new(Game_Memory)
 	atlas_image := rl.LoadImageFromMemory(".png", raw_data(ATLAS_DATA), i32(len(ATLAS_DATA)))
 
-	bg_shader_str := strings.string_from_ptr(raw_data(BACKGROUND_SHADER_DATA), len(BACKGROUND_SHADER_DATA))
-	ground_shader_str := strings.string_from_ptr(raw_data(GROUND_SHADER_DATA), len(GROUND_SHADER_DATA))
-	ground_shader_vs_str := strings.string_from_ptr(raw_data(GROUND_SHADER_VS_DATA), len(GROUND_SHADER_VS_DATA))
-	bg_shader := rl.LoadShaderFromMemory(nil, temp_cstring(bg_shader_str))
-
 	g_mem^ = Game_Memory {
 		atlas = rl.LoadTextureFromImage(atlas_image),
-		tuna = {10, -2},
-		background_shader = bg_shader,
-		ground_shader = rl.LoadShaderFromMemory(temp_cstring(ground_shader_vs_str), temp_cstring(ground_shader_str)),
 		hit_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(HIT_SOUND), i32(len(HIT_SOUND)))),
 		land_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(LAND_SOUND), i32(len(LAND_SOUND)))),
 		win_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(WIN_SOUND), i32(len(WIN_SOUND)))),
-		in_menu = true,
-		hovered_menu_item = -1,
 	}
-
 	
 	rl.SetSoundVolume(g_mem.hit_sound, 0.5)
 	rl.SetSoundVolume(g_mem.land_sound, 0.5)
@@ -549,12 +270,18 @@ init :: proc() {
 		recs = raw_data(font_rects),
 		glyphs = raw_data(glyphs),
 	}
+	
+	world_def := b2.DefaultWorldDef()
+	world_def.gravity = GRAVITY
+	world_def.enableContinous = true
+	g_mem.physics_world = b2.CreateWorld(world_def)	
+	
+	g_mem.rc = round_cat_make({10,10})
 
 	game_hot_reloaded(g_mem)
 }
 
 shutdown :: proc() {
-	delete(g_mem.walls)
 	mem.free(g_mem.font.recs)
 	mem.free(g_mem.font.glyphs)
 	free(g_mem)
