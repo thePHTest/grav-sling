@@ -21,8 +21,10 @@ round_cat_make :: proc(pos: Vec2) -> Round_Cat {
 	bd := b2.DefaultBodyDef()
 	bd.type = .dynamicBody
 	bd.position = pos
-	bd.linearDamping = 0.2
-	bd.angularDamping = 0.7
+	//bd.linearDamping = 0.2
+	//bd.angularDamping = 0.7
+	bd.linearDamping = 0.0
+	bd.angularDamping = 0.0
 	body := b2.CreateBody(g_mem.physics_world, bd)
 
 	sd := b2.DefaultShapeDef()

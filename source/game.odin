@@ -3,16 +3,29 @@ package game
 import b2 "box2d"
 import rl "vendor:raylib"
 import "core:fmt"
+import "core:math"
 import "core:mem"
 import "core:strings"
 
-PIXEL_WINDOW_HEIGHT :: 180
+PIXEL_WINDOW_HEIGHT :: 1080
+
+Wall :: struct {
+	body: b2.BodyId,
+	shape: b2.ShapeId,
+	rect: Rect,
+	rot: f32,
+}
 
 Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
 	atlas: rl.Texture2D,
+	
+	left_wall: Wall,
+	right_wall: Wall,
+	top_wall: Wall,
+	bottom_wall: Wall,
 
 	time_accumulator: f32,
 
@@ -27,12 +40,6 @@ Game_Memory :: struct {
 	hit_sound: rl.Sound,
 	land_sound: rl.Sound,
 	win_sound: rl.Sound,
-}
-
-levels := [?]string {
-	"assets/level.sjson",
-	"assets/level2.sjson",
-	"assets/level3.sjson",
 }
 
 atlas: rl.Texture2D
@@ -52,7 +59,7 @@ game_camera :: proc() -> rl.Camera2D {
 
 	return {
 		zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
-		target = vec2_flip(round_cat_pos(g_mem.rc)),
+		//target = vec2_flip(round_cat_pos(g_mem.rc)),
 		offset = { w/2, h/2 },
 	}
 }
@@ -119,10 +126,36 @@ Collision_Category :: enum u32 {
 	Round_Cat,
 }
 
-COLOR_WALL :: rl.Color { 16, 220, 117, 255 }
+rect_offset :: proc(r: Rect, o: Vec2) -> Rect {
+	return {
+		r.x + o.x,
+		r.y + o.y,
+		r.width,
+		r.height,
+	}
+}
+
+rect_flip :: proc(r: Rect) -> Rect {
+	return {
+		r.x, -r.y - r.height,
+		r.width, r.height,
+	}
+}
+
+draw_wall :: proc(wall : Wall) {
+	mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
+	rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
+}
 
 draw_world :: proc() {
 	round_cat_draw(g_mem.rc)
+	draw_wall(g_mem.left_wall)
+	draw_wall(g_mem.right_wall)
+	draw_wall(g_mem.top_wall)
+	draw_wall(g_mem.bottom_wall)
+	
+	// Origin
+	rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
 }
 
 draw :: proc() {
@@ -166,12 +199,6 @@ get_mouse_pos :: proc() -> Vec2 {
 	return vec2_flip(rl.GetMousePosition())
 }
 
-rect_flip :: proc(r: Rect) -> Rect {
-	return {
-		r.x, -r.y - r.height,
-		r.width, r.height,
-	}
-}
 
 vec2_flip :: proc(p: Vec2) -> Vec2 {
 	return {
@@ -206,7 +233,7 @@ init_window :: proc() {
 }
 
 Vec2 :: [2]f32
-Rect :: rl.Rectangle
+Rect :: rl.Rectangle // x and y are bottom left
 //GRAVITY :: Vec2 {0, -9.82*10}
 GRAVITY :: Vec2 {0, 0}
 
@@ -279,6 +306,38 @@ init :: proc() {
 	g_mem.rc = round_cat_make({10,10})
 
 	game_hot_reloaded(g_mem)
+	
+	field_width ::  190
+	field_height :: 106 
+	wall_thickness :: 1
+	
+	g_mem.left_wall = make_wall(Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
+	g_mem.right_wall = make_wall(Rect{field_width/2, -field_height/2, wall_thickness, field_height})
+	g_mem.top_wall = make_wall(Rect{-field_width/2, field_height/2, field_width, wall_thickness})
+	g_mem.bottom_wall = make_wall(Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
+}
+
+make_wall :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
+	w := Wall {
+		rect = rect,
+		rot = rot,
+	}
+
+	body_def := b2.DefaultBodyDef()
+	body_def.position = b2.Vec2{rect.x + rect.width/2, rect.y + rect.height/2}
+	body_def.rotation = b2.MakeRot(rot)
+	w.body = b2.CreateBody(physics_world(), body_def)
+
+	box := b2.MakeBox((rect.width/2), (rect.height/2))
+	shape_def := b2.DefaultShapeDef()
+	shape_def.friction = 0.7
+	shape_def.filter = {
+		categoryBits = u32(bit_set[Collision_Category] { .Wall }),
+		maskBits = u32(bit_set[Collision_Category] { .Round_Cat, .Long_Cat }),
+	}
+
+	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)
+	return w
 }
 
 shutdown :: proc() {
