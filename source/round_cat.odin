@@ -10,6 +10,7 @@ _ :: math
 _ :: fmt
 
 USE_PIVOTS :: false
+USE_JETS :: false
 
 Round_Cat :: struct {
 	body: b2.BodyId,
@@ -34,6 +35,8 @@ round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 	bd := b2.DefaultBodyDef()
 	bd.type = .dynamicBody
 	bd.position = pos
+	// TODO: Instead of linearDamping, try using this for top down friction
+	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
 	bd.linearDamping = 0.3
 	bd.angularDamping = 0.7
 	//bd.linearDamping = 0.0
@@ -91,7 +94,7 @@ round_cat_draw :: proc(rc: Round_Cat) {
 	aim_pos := pos + rc.aim_range * rc.aim_direction
 	dest := draw_dest_rect(pos, source)
 	
-	rl.DrawCircleV(vec2_flip(pos), rc.aim_range, rl.BLACK)
+	//rl.DrawCircleV(vec2_flip(pos), rc.aim_range, rl.BLACK)
 
 	/*t := f32(remap(rl.GetTime(), rc.squish_start, rc.squish_start + 0.5, 0, 1))
 
@@ -188,7 +191,7 @@ round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, 
 	// TODO: Tune these values
 	joint_def.enableSpring = true
 	joint_def.hertz = 1.0
-	joint_def.dampingRatio = 0.0
+	joint_def.dampingRatio = 1.0
 	
 	joint_def.enableMotor = true
 	joint_def.motorSpeed = -40.0
@@ -213,7 +216,8 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 
 	deadzone :: 0.1
 	// Apply force in WASD direction controls
-	dir : Vec2 = proc() -> Vec2 {
+
+	dir : Vec2 = USE_JETS ? proc() -> Vec2 {
 		result : Vec2
 		if rl.IsKeyDown(.W) {
 			result.y = 1.0
@@ -234,7 +238,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		}
 		
 		return la.normalize0(result)
-	}()
+	}() : Vec2{}
 	
 	MAX_VERTICAL_JET :: 3
 	MAX_HORIZONTAL_JET :: 3
@@ -262,13 +266,17 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	force : f32 = 400.0
 	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
 	
-	joystick_right_x := rl.GetGamepadAxisMovement(0, .RIGHT_X)
-	joystick_right_y := rl.GetGamepadAxisMovement(0, .RIGHT_Y) * -1.0 // Invert
-	joystick_right_x = apply_deadzone(deadzone, joystick_right_x)
-	joystick_right_y = apply_deadzone(deadzone, joystick_right_y)
-	rc.aim_direction = Vec2{joystick_right_x, joystick_right_y}
+	aim_joystick_left := USE_JETS ? rl.GetGamepadAxisMovement(0, .RIGHT_X) : rl.GetGamepadAxisMovement(0, .LEFT_X)
+	aim_joystick_right := USE_JETS ? rl.GetGamepadAxisMovement(0, .RIGHT_Y) : rl.GetGamepadAxisMovement(0, .LEFT_Y) * -1.0 // Invert
+	aim_joystick_left = apply_deadzone(deadzone, aim_joystick_left)
+	aim_joystick_right = apply_deadzone(deadzone, aim_joystick_right)
+	rc.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
+	if la.length(rc.aim_direction) > 1 {
+		rc.aim_direction = la.normalize0(rc.aim_direction)
+	}
+
 	
-	if rl.IsGamepadButtonPressed(0, .RIGHT_TRIGGER_1) {
+	if rl.IsGamepadButtonPressed(0, .RIGHT_FACE_DOWN) {
 		// TODO: Bool instead of comparing to zero struct?
 		if rc.distance_joint_pivot_id == {} {
 			rc_pos := body_pos(rc.body)
@@ -284,7 +292,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 						break
 					}
 				}
-			} else {
+			} else if rc.aim_direction != {} {
 				rc.pivot = pivot_make(rc_pos + rc.aim_direction * rc.aim_range, 2.0)
 				round_cat_make_distance_joint(rc, rc.pivot.body, physics_world)
 			}
