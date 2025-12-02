@@ -9,6 +9,8 @@ import la "core:math/linalg"
 _ :: math
 _ :: fmt
 
+USE_PIVOTS :: false
+
 Round_Cat :: struct {
 	body: b2.BodyId,
 	shape: b2.ShapeId,
@@ -21,6 +23,8 @@ Round_Cat :: struct {
 	
 	aim_range: f32,
 	aim_direction: Vec2,
+
+	pivot: Pivot,
 	
 	distance_joint_pivot_id: b2.BodyId,
 	distance_joint: b2.JointId,
@@ -108,6 +112,11 @@ round_cat_draw :: proc(rc: Round_Cat) {
 		pivot_pos := body_pos(rc.distance_joint_pivot_id)
 		rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
 	}
+
+	if rc.pivot.body != {} {
+		draw_pivot(rc.pivot)
+	}
+
 }
 
 apply_deadzone :: proc(deadzone : f32, joystick_value : f32) -> f32{
@@ -156,6 +165,37 @@ ray_intersects_circle_thick :: proc(
     t0_sq := (proj*proj)/d_sq - t_off_sq
 
     return t0_sq <= max_t * max_t
+}
+
+round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, physics_world: b2.WorldId) {
+	// Distance joint
+	joint_def := b2.DefaultDistanceJointDef()
+	joint_def.bodyIdA = rc.body
+	joint_def.bodyIdB = other_body_id
+
+	joint_def.localAnchorA = Vec2{0, 0}
+	joint_def.localAnchorB = Vec2{0, 0}
+
+	anchor_a := b2.Body_GetWorldPoint(rc.body, joint_def.localAnchorA)
+	anchor_b := b2.Body_GetWorldPoint(other_body_id, joint_def.localAnchorB)
+	joint_def.length = b2.Distance(anchor_a, anchor_b)
+	joint_def.enableLimit = true
+	joint_def.minLength = 4.0
+	joint_def.maxLength = max(joint_def.length + 5.0, joint_def.minLength + 1.0)
+	joint_def.collideConnected = true
+
+	// TODO: hertz value here depends on the update frequency.
+	// TODO: Tune these values
+	joint_def.enableSpring = true
+	joint_def.hertz = 1.0
+	joint_def.dampingRatio = 0.0
+	
+	joint_def.enableMotor = true
+	joint_def.motorSpeed = -40.0
+	joint_def.maxMotorForce = 10000.0
+
+	rc.distance_joint_pivot_id = other_body_id
+	rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
 round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
@@ -228,63 +268,39 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	joystick_right_y = apply_deadzone(deadzone, joystick_right_y)
 	rc.aim_direction = Vec2{joystick_right_x, joystick_right_y}
 	
-	if rl.IsGamepadButtonPressed(0, .RIGHT_TRIGGER_2) {
+	if rl.IsGamepadButtonPressed(0, .RIGHT_TRIGGER_1) {
 		// TODO: Bool instead of comparing to zero struct?
 		if rc.distance_joint_pivot_id == {} {
 			rc_pos := body_pos(rc.body)
 			// Check if our aim vector intersects a pivot
 			// TODO: put aim range on rc
 			RAY_THICKNESS :: 0.5
-			for pivot in pivots {
-				if ray_intersects_circle_thick(rc_pos, rc.aim_direction, rc.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
-					fmt.println("Intersects!")
-					
-					// Distance joint
-					joint_def := b2.DefaultDistanceJointDef()
-					joint_def.bodyIdA = rc.body
-					joint_def.bodyIdB = pivot.body
 
-					joint_def.localAnchorA = Vec2{0, 0}
-					joint_def.localAnchorB = Vec2{0, 0}
 
-					anchor_a := b2.Body_GetWorldPoint(rc.body, joint_def.localAnchorA)
-					anchor_b := b2.Body_GetWorldPoint(pivot.body, joint_def.localAnchorB)
-					joint_def.length = b2.Distance(anchor_a, anchor_b)
-					joint_def.enableLimit = true
-					joint_def.minLength = 4.0
-					joint_def.maxLength = max(joint_def.length + 5.0, joint_def.minLength + 1.0)
-					joint_def.collideConnected = true
-
-					// TODO: hertz value here depends on the update frequency.
-					// TODO: Tune these values
-					joint_def.enableSpring = true
-					joint_def.hertz = 1.0
-					joint_def.dampingRatio = 0.0
-					
-					joint_def.enableMotor = true
-					joint_def.motorSpeed = -40.0
-					joint_def.maxMotorForce = 10000.0
-
-					rc.distance_joint_pivot_id = pivot.body
-					rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
-					break
+			if USE_PIVOTS {
+				for pivot in pivots {
+					if ray_intersects_circle_thick(rc_pos, rc.aim_direction, rc.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
+						round_cat_make_distance_joint(rc, pivot.body, physics_world)
+						break
+					}
 				}
+			} else {
+				rc.pivot = pivot_make(rc_pos + rc.aim_direction * rc.aim_range, 2.0)
+				round_cat_make_distance_joint(rc, rc.pivot.body, physics_world)
 			}
 		
 		} else {
 			b2.DestroyJoint(rc.distance_joint)
 			rc.distance_joint_pivot_id = {}
-		}
-	}
-	
-	if rc.distance_joint_pivot_id != {} {
-		if b2.DistanceJoint_GetCurrentLength(rc.distance_joint) <= 3.0 {
-			b2.DistanceJoint_EnableMotor(rc.distance_joint, false)
-			b2.DistanceJoint_SetLength(rc.distance_joint, 3.0)
+
+			if !USE_PIVOTS {
+				b2.DestroyBody(rc.pivot.body)
+				rc.pivot = {}
+			}
 		}
 	}
 
-	max_velocity :: 60.0
+	max_velocity :: 75.0
 	current_velocity := b2.Body_GetLinearVelocity(rc.body)
 	if la.length(current_velocity) > max_velocity {
 		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)

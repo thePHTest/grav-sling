@@ -157,10 +157,8 @@ draw_wall :: proc(wall : Wall) {
 	rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
 }
 
-draw_pivots :: proc() {
-	for pivot in g_mem.pivots {
-		rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
-	}
+draw_pivot :: proc(pivot: Pivot) {
+	rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
 }
 
 draw_world :: proc() {
@@ -170,7 +168,9 @@ draw_world :: proc() {
 	draw_wall(g_mem.top_wall)
 	draw_wall(g_mem.bottom_wall)
 	
-	draw_pivots()
+	for pivot in g_mem.pivots {
+		draw_pivot(pivot)
+	}
 	
 	// Origin
 	rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
@@ -329,9 +329,11 @@ init :: proc() {
 	field_height :: 106 
 	wall_thickness :: 1
 	
-	for y := -field_height / 2; y < field_height/2; y += 30 {
-		for x := -field_width / 2; x < field_width/2; x += 30 {
-			append(&g_mem.pivots, pivot_make(Vec2{f32(x), f32(y)}, 2.0))
+	if USE_PIVOTS {
+		for y := -field_height / 2; y < field_height/2; y += 30 {
+			for x := -field_width / 2; x < field_width/2; x += 30 {
+				append(&g_mem.pivots, pivot_make(Vec2{f32(x), f32(y)}, 2.0))
+			}
 		}
 	}
 	
