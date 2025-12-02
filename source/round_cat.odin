@@ -15,16 +15,25 @@ Round_Cat :: struct {
 	squish_amount: f32,
 	squish_direction: Vec2,
 	squish_start: f64,
+	
+	jet_vertical_count : int,
+	jet_horizontal_count : int,
+	
+	aim_range: f32,
+	aim_direction: Vec2,
+	
+	distance_joint_pivot_id: b2.BodyId,
+	distance_joint: b2.JointId,
 }
 
-round_cat_make :: proc(pos: Vec2) -> Round_Cat {
+round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 	bd := b2.DefaultBodyDef()
 	bd.type = .dynamicBody
 	bd.position = pos
-	//bd.linearDamping = 0.2
-	//bd.angularDamping = 0.7
-	bd.linearDamping = 0.0
-	bd.angularDamping = 0.0
+	bd.linearDamping = 0.3
+	bd.angularDamping = 0.7
+	//bd.linearDamping = 0.0
+	//bd.angularDamping = 0.0
 	body := b2.CreateBody(g_mem.physics_world, bd)
 
 	sd := b2.DefaultShapeDef()
@@ -49,6 +58,7 @@ round_cat_make :: proc(pos: Vec2) -> Round_Cat {
 	return {
 		body = body,
 		shape = shape,
+		aim_range = aim_range,
 	}
 }
 
@@ -73,7 +83,11 @@ smoothstart5 :: proc(t: f32) -> f32 {
 round_cat_draw :: proc(rc: Round_Cat) {
 	a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
 	source := atlas_textures[.Round_Cat].rect
-	dest := draw_dest_rect(body_pos(rc.body), source)
+	pos := body_pos(rc.body)
+	aim_pos := pos + rc.aim_range * rc.aim_direction
+	dest := draw_dest_rect(pos, source)
+	
+	rl.DrawCircleV(vec2_flip(pos), rc.aim_range, rl.BLACK)
 
 	/*t := f32(remap(rl.GetTime(), rc.squish_start, rc.squish_start + 0.5, 0, 1))
 
@@ -87,9 +101,64 @@ round_cat_draw :: proc(rc: Round_Cat) {
 	// rlgl scale?*/
 
 	rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
+	
+	rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
+	
+	if rc.distance_joint_pivot_id != {} {
+		pivot_pos := body_pos(rc.distance_joint_pivot_id)
+		rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
+	}
 }
 
-round_cat_update :: proc(rc: ^Round_Cat) {
+apply_deadzone :: proc(deadzone : f32, joystick_value : f32) -> f32{
+	if abs(joystick_value) < deadzone {
+		return 0
+	}
+	return math.sign(joystick_value) * math.remap(abs(joystick_value), deadzone, 1.0, 0.0, 1.0)
+}
+
+ray_intersects_circle_thick :: proc(
+    p: Vec2,                // ray origin
+    d: Vec2,                // ray direction (need NOT be normalized)
+    max_range: f32,         // ray length
+    c: Vec2,                // circle center
+    circle_radius: f32,     // circle radius
+    ray_thickness: f32,      // ray thickness
+) -> bool {
+
+    // Effective radius (circle radius + ray radius)
+    eff_r := circle_radius + ray_thickness
+    eff_r_sq := eff_r * eff_r
+
+    // Extend usable ray range so the *tip* of the ray can hit the circle
+    max_t := max_range + eff_r
+
+    f := c - p
+
+    // 1. Check if circle is in front of ray
+    proj := la.dot(f, d)
+    if proj < 0 {
+        return false
+    }
+
+    d_sq := la.dot(d, d)
+    cross_val := la.cross(d, f)          // scalar in 2D
+    cross_sq  := cross_val * cross_val
+
+    // 2. Perpendicular distance test (no sqrt)
+    if cross_sq > eff_r_sq * d_sq {
+        return false
+    }
+
+    // 3. Intersection distance check (no sqrt)
+    //    Compute t₀², comparing to max_t².
+    t_off_sq := (eff_r_sq * d_sq - cross_sq) / d_sq
+    t0_sq := (proj*proj)/d_sq - t_off_sq
+
+    return t0_sq <= max_t * max_t
+}
+
+round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(rc.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
 	contact_data = b2.Body_GetContactData(rc.body, contact_data)
@@ -102,26 +171,120 @@ round_cat_update :: proc(rc: ^Round_Cat) {
 		}
 	}
 
-	force : f32 = 1000.0
+	deadzone :: 0.1
+	// Apply force in WASD direction controls
 	dir : Vec2 = proc() -> Vec2 {
 		result : Vec2
 		if rl.IsKeyDown(.W) {
 			result.y = 1.0
 		} else if rl.IsKeyDown(.S) {
 			result.y = -1.0
+		} else {
+			result.y = rl.GetGamepadAxisMovement(0, .LEFT_Y) * -1
+			result.y = apply_deadzone(deadzone, result.y)
 		}
 		
 		if rl.IsKeyDown(.A) {
 			result.x = -1.0
 		} else if rl.IsKeyDown(.D) {
 			result.x = 1.0
+		} else {
+			result.x = rl.GetGamepadAxisMovement(0, .LEFT_X)
+			result.x = apply_deadzone(deadzone, result.x)
 		}
+		
 		return la.normalize0(result)
 	}()
-
+	
+	MAX_VERTICAL_JET :: 3
+	MAX_HORIZONTAL_JET :: 3
+	// Jet lash controls
+	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_UP) {
+	//	rc.jet_horizontal_count = 0
+	//	rc.jet_vertical_count = clamp(rc.jet_vertical_count + 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET) 
+	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_DOWN) {
+	//	rc.jet_horizontal_count = 0
+	//	rc.jet_vertical_count = clamp(rc.jet_vertical_count - 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET)
+	//}
+	//
+	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_LEFT) {
+	//	rc.jet_vertical_count = 0
+	//	rc.jet_horizontal_count = clamp(rc.jet_horizontal_count - 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
+	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_RIGHT) {
+	//	rc.jet_vertical_count = 0
+	//	rc.jet_horizontal_count = clamp(rc.jet_horizontal_count + 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
+	//}
+	//dir := la.normalize0(Vec2{f32(math.sign(rc.jet_horizontal_count)), f32(math.sign(rc.jet_vertical_count))})
+	//force : f32 = 200.0
+	//jet_count := math.abs(rc.jet_horizontal_count) + math.abs(rc.jet_vertical_count)
+	//b2.Body_ApplyForceToCenter(rc.body, force*f32(jet_count)*dir, true)
+	
+	force : f32 = 400.0
 	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
 	
-	max_velocity :: 20.0
+	joystick_right_x := rl.GetGamepadAxisMovement(0, .RIGHT_X)
+	joystick_right_y := rl.GetGamepadAxisMovement(0, .RIGHT_Y) * -1.0 // Invert
+	joystick_right_x = apply_deadzone(deadzone, joystick_right_x)
+	joystick_right_y = apply_deadzone(deadzone, joystick_right_y)
+	rc.aim_direction = Vec2{joystick_right_x, joystick_right_y}
+	
+	if rl.IsGamepadButtonPressed(0, .RIGHT_TRIGGER_2) {
+		// TODO: Bool instead of comparing to zero struct?
+		if rc.distance_joint_pivot_id == {} {
+			rc_pos := body_pos(rc.body)
+			// Check if our aim vector intersects a pivot
+			// TODO: put aim range on rc
+			RAY_THICKNESS :: 0.5
+			for pivot in pivots {
+				if ray_intersects_circle_thick(rc_pos, rc.aim_direction, rc.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
+					fmt.println("Intersects!")
+					
+					// Distance joint
+					joint_def := b2.DefaultDistanceJointDef()
+					joint_def.bodyIdA = rc.body
+					joint_def.bodyIdB = pivot.body
+
+					joint_def.localAnchorA = Vec2{0, 0}
+					joint_def.localAnchorB = Vec2{0, 0}
+
+					anchor_a := b2.Body_GetWorldPoint(rc.body, joint_def.localAnchorA)
+					anchor_b := b2.Body_GetWorldPoint(pivot.body, joint_def.localAnchorB)
+					joint_def.length = b2.Distance(anchor_a, anchor_b)
+					joint_def.enableLimit = true
+					joint_def.minLength = 4.0
+					joint_def.maxLength = max(joint_def.length + 5.0, joint_def.minLength + 1.0)
+					joint_def.collideConnected = true
+
+					// TODO: hertz value here depends on the update frequency.
+					// TODO: Tune these values
+					joint_def.enableSpring = true
+					joint_def.hertz = 1.0
+					joint_def.dampingRatio = 0.0
+					
+					joint_def.enableMotor = true
+					joint_def.motorSpeed = -40.0
+					joint_def.maxMotorForce = 10000.0
+
+					rc.distance_joint_pivot_id = pivot.body
+					rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
+					break
+				}
+			}
+		
+		} else {
+			b2.DestroyJoint(rc.distance_joint)
+			rc.distance_joint_pivot_id = {}
+		}
+	}
+	
+	if rc.distance_joint_pivot_id != {} {
+		if b2.DistanceJoint_GetCurrentLength(rc.distance_joint) <= 3.0 {
+			b2.DistanceJoint_EnableMotor(rc.distance_joint, false)
+			b2.DistanceJoint_SetLength(rc.distance_joint, 3.0)
+		}
+	}
+
+	max_velocity :: 60.0
 	current_velocity := b2.Body_GetLinearVelocity(rc.body)
 	if la.length(current_velocity) > max_velocity {
 		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)

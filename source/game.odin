@@ -16,11 +16,20 @@ Wall :: struct {
 	rot: f32,
 }
 
+Pivot :: struct {
+	body: b2.BodyId,
+	shape: b2.ShapeId,
+	pos: Vec2,
+	radius: f32,
+}
+
 Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
 	atlas: rl.Texture2D,
+	
+	pivots: [dynamic]Pivot,
 	
 	left_wall: Wall,
 	right_wall: Wall,
@@ -117,13 +126,14 @@ update :: proc() {
 		g_mem.time_accumulator -= PHYSICS_STEP
 	}
 
-	round_cat_update(&g_mem.rc)
+	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
 }
 
 Collision_Category :: enum u32 {
 	Wall,
 	Long_Cat,
 	Round_Cat,
+	Pivot,
 }
 
 rect_offset :: proc(r: Rect, o: Vec2) -> Rect {
@@ -147,12 +157,20 @@ draw_wall :: proc(wall : Wall) {
 	rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
 }
 
+draw_pivots :: proc() {
+	for pivot in g_mem.pivots {
+		rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
+	}
+}
+
 draw_world :: proc() {
 	round_cat_draw(g_mem.rc)
 	draw_wall(g_mem.left_wall)
 	draw_wall(g_mem.right_wall)
 	draw_wall(g_mem.top_wall)
 	draw_wall(g_mem.bottom_wall)
+	
+	draw_pivots()
 	
 	// Origin
 	rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
@@ -303,7 +321,7 @@ init :: proc() {
 	world_def.enableContinous = true
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
-	g_mem.rc = round_cat_make({10,10})
+	g_mem.rc = round_cat_make({10,10}, 30.0)
 
 	game_hot_reloaded(g_mem)
 	
@@ -311,13 +329,20 @@ init :: proc() {
 	field_height :: 106 
 	wall_thickness :: 1
 	
-	g_mem.left_wall = make_wall(Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
-	g_mem.right_wall = make_wall(Rect{field_width/2, -field_height/2, wall_thickness, field_height})
-	g_mem.top_wall = make_wall(Rect{-field_width/2, field_height/2, field_width, wall_thickness})
-	g_mem.bottom_wall = make_wall(Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
+	for y := -field_height / 2; y < field_height/2; y += 30 {
+		for x := -field_width / 2; x < field_width/2; x += 30 {
+			append(&g_mem.pivots, pivot_make(Vec2{f32(x), f32(y)}, 2.0))
+		}
+	}
+	
+	
+	g_mem.left_wall = wall_make(Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
+	g_mem.right_wall = wall_make(Rect{field_width/2, -field_height/2, wall_thickness, field_height})
+	g_mem.top_wall = wall_make(Rect{-field_width/2, field_height/2, field_width, wall_thickness})
+	g_mem.bottom_wall = wall_make(Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
 }
 
-make_wall :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
+wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	w := Wall {
 		rect = rect,
 		rot = rot,
@@ -340,9 +365,32 @@ make_wall :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	return w
 }
 
+pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
+	pivot := Pivot {
+		pos = pos,
+		radius = radius,
+	}
+
+	body_def := b2.DefaultBodyDef()
+	body_def.position = pos
+	pivot.body = b2.CreateBody(physics_world(), body_def)
+
+	circle := b2.Circle{radius=radius}
+	shape_def := b2.DefaultShapeDef()
+	shape_def.friction = 0.7
+	shape_def.filter = {
+		categoryBits = u32(bit_set[Collision_Category] { .Pivot }),
+		//maskBits = u32(bit_set[Collision_Category] { .Round_Cat, .Long_Cat }),
+	}
+
+	pivot.shape = b2.CreateCircleShape(pivot.body, shape_def, circle)
+	return pivot
+}
+
 shutdown :: proc() {
 	mem.free(g_mem.font.recs)
 	mem.free(g_mem.font.glyphs)
+	mem.delete(g_mem.pivots)
 	free(g_mem)
 }
 
