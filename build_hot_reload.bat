@@ -37,6 +37,10 @@ set /p PDB_NUMBER=<%GAME_PDBS_DIR%\pdb_number
 set /a PDB_NUMBER=%PDB_NUMBER%+1
 echo %PDB_NUMBER% > %GAME_PDBS_DIR%\pdb_number
 
+
+set app_collections=-collection:deps=deps/
+
+
 :: Build game dll, use pdbs\game_%PDB_NUMBER%.pdb as PDB name so each dll gets
 :: its own PDB. This PDB stuff is done in order to make debugging work.
 :: Debuggers tend to lock PDBs or just misbehave if you reuse the same PDB while
@@ -49,7 +53,7 @@ echo %PDB_NUMBER% > %GAME_PDBS_DIR%\pdb_number
 :: Also note that we always write game.dll to the same file. game_hot_reload.exe
 :: monitors this file and does the hot reload when it changes.
 echo Building game.dll
-odin build source -strict-style -vet -debug -define:RAYLIB_SHARED=true -define:BOX2D_SHARED=true -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
+odin build source -strict-style -vet -debug %app_collections% -define:RAYLIB_SHARED=true -define:BOX2D_SHARED=true -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 :: If game.exe already running: Then only compile game.dll and exit cleanly
