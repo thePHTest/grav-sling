@@ -2,12 +2,15 @@ package game
 
 import b2 "box2d"
 import rl "vendor:raylib"
-import im "deps:odin-imgui"
+import sdl "vendor:sdl3"
+//import im "deps:odin-imgui"
 import "core:fmt"
-import "core:math"
+import "core:log"
+//import "core:math"
 import "core:mem"
 import "core:strings"
 
+GAME_TITLE :: "GravSling"
 PIXEL_WINDOW_HEIGHT :: 1080
 
 Wall :: struct {
@@ -25,10 +28,12 @@ Pivot :: struct {
 }
 
 Game_Memory :: struct {
+	window: ^sdl.Window,
+
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
-	atlas: rl.Texture2D,
+	//atlas: rl.Texture2D,
 	
 	pivots: [dynamic]Pivot,
 	
@@ -43,22 +48,22 @@ Game_Memory :: struct {
 	won_at: f64,
 
 	finished: bool,
-	font: rl.Font,
+	//font: rl.Font,
 
 
 	// sounds
-	hit_sound: rl.Sound,
-	land_sound: rl.Sound,
-	win_sound: rl.Sound,
+	//hit_sound: rl.Sound,
+	//land_sound: rl.Sound,
+	//win_sound: rl.Sound,
 }
 
-atlas: rl.Texture2D
+//atlas: rl.Texture2D
 g_mem: ^Game_Memory
-font: rl.Font
+//font: rl.Font
 
 refresh_globals :: proc() {
-	atlas = g_mem.atlas
-	font = g_mem.font
+	//atlas = g_mem.atlas
+	//font = g_mem.font
 }
 
 GAME_SCALE :: 10
@@ -86,12 +91,6 @@ physics_world :: proc() -> b2.WorldId {
 
 dt: f32
 real_dt: f32
-
-got_tuna :: proc() {
-	g_mem.won = true
-	g_mem.won_at = rl.GetTime()
-	rl.PlaySound(g_mem.win_sound)
-}
 
 update :: proc() {
 	dt = rl.GetFrameTime()
@@ -154,12 +153,12 @@ rect_flip :: proc(r: Rect) -> Rect {
 }
 
 draw_wall :: proc(wall : Wall) {
-	mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
-	rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
+	//mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
+	//rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
 }
 
 draw_pivot :: proc(pivot: Pivot) {
-	rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
+	//rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
 }
 
 draw_world :: proc() {
@@ -174,33 +173,33 @@ draw_world :: proc() {
 	}
 	
 	// Origin
-	rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
+	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
 }
 
 draw :: proc() {
 	//debug_draw()
-	rl.BeginDrawing()
+	//rl.BeginDrawing()
 	//t := f32(rl.GetTime())
-	game_cam := game_camera()
+	//game_cam := game_camera()
 
-	rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
-	rl.ClearBackground({0, 120, 153, 255})
-	rl.BeginMode2D(game_cam)
+	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
+	//rl.ClearBackground({0, 120, 153, 255})
+	//rl.BeginMode2D(game_cam)
 
 	draw_world()
 
-	rl.EndMode2D()
-	rl.BeginMode2D(ui_camera())
+	//rl.EndMode2D()
+	//rl.BeginMode2D(ui_camera())
 
 
 	if g_mem.finished {
-		rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
+		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
 	} else if g_mem.won {
-		rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
+		//rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
 	}
 
-	rl.EndMode2D()
-	rl.EndDrawing()
+	//rl.EndMode2D()
+	//rl.EndDrawing()
 }
 
 LEVEL_1_POS :: Vec2 {70, 70+10}
@@ -228,6 +227,7 @@ vec2_flip :: proc(p: Vec2) -> Vec2 {
 IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
 
 init_window :: proc() {
+	/*
 	flags: rl.ConfigFlags
 
 	when ODIN_DEBUG {
@@ -249,10 +249,29 @@ init_window :: proc() {
 		rl.ToggleBorderlessWindowed()
 	}
 	rl.SetExitKey(.KEY_NULL)
+	*/
+
+	if !sdl.Init({.AUDIO, .VIDEO, .EVENTS, .GAMEPAD}) {
+		log.error("sdl.Init() failed:", sdl.GetError())
+	}
+
+	// TODO: Proper window size settings
+	// TODO: Proper indow flags settings
+	g_mem.window = sdl.CreateWindow(GAME_TITLE, 1920, 1080, {.RESIZABLE})
+	if g_mem.window == nil {
+		log.error("sdl.CreateWindow() failed:", sdl.GetError())
+	}
+
 }
 
 Vec2 :: [2]f32
-Rect :: rl.Rectangle // x and y are bottom left
+Rect :: struct {
+	x:      f32,                  // Rectangle bottom-left corner position x
+	y:      f32,                  // Rectangle bottom-left corner position y
+	width:  f32,                  // Rectangle width
+	height: f32,                  // Rectangle height
+}
+
 //GRAVITY :: Vec2 {0, -9.82*10}
 GRAVITY :: Vec2 {0, 0}
 
@@ -278,44 +297,44 @@ temp_cstring :: proc(s: string) -> cstring {
 init :: proc() {
 	fmt.println("init")
 	g_mem = new(Game_Memory)
-	atlas_image := rl.LoadImageFromMemory(".png", raw_data(ATLAS_DATA), i32(len(ATLAS_DATA)))
+	//atlas_image := rl.LoadImageFromMemory(".png", raw_data(ATLAS_DATA), i32(len(ATLAS_DATA)))
 
 	g_mem^ = Game_Memory {
-		atlas = rl.LoadTextureFromImage(atlas_image),
-		hit_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(HIT_SOUND), i32(len(HIT_SOUND)))),
-		land_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(LAND_SOUND), i32(len(LAND_SOUND)))),
-		win_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(WIN_SOUND), i32(len(WIN_SOUND)))),
+		//atlas = rl.LoadTextureFromImage(atlas_image),
+		//hit_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(HIT_SOUND), i32(len(HIT_SOUND)))),
+		//land_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(LAND_SOUND), i32(len(LAND_SOUND)))),
+		//win_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(WIN_SOUND), i32(len(WIN_SOUND)))),
 	}
 	
-	rl.SetSoundVolume(g_mem.hit_sound, 0.5)
-	rl.SetSoundVolume(g_mem.land_sound, 0.5)
-	rl.SetSoundVolume(g_mem.win_sound, 0.3)
+	//rl.SetSoundVolume(g_mem.hit_sound, 0.5)
+	//rl.SetSoundVolume(g_mem.land_sound, 0.5)
+	//rl.SetSoundVolume(g_mem.win_sound, 0.3)
 
-	rl.UnloadImage(atlas_image)
+	//rl.UnloadImage(atlas_image)
 
-	num_glyphs := len(atlas_glyphs)
-	font_rects := make([]Rect, num_glyphs)
-	glyphs := make([]rl.GlyphInfo, num_glyphs)
+	//num_glyphs := len(atlas_glyphs)
+	//font_rects := make([]Rect, num_glyphs)
+	//glyphs := make([]rl.GlyphInfo, num_glyphs)
 
-	for ag, idx in atlas_glyphs {
-		
-		font_rects[idx] = ag.rect
-		glyphs[idx] = {
-			value = ag.value,
-			offsetX = i32(ag.offset_x),
-			offsetY = i32(ag.offset_y),
-			advanceX = i32(ag.advance_x),
-		}
-	} 
+	//for ag, idx in atlas_glyphs {
+	//	
+	//	font_rects[idx] = ag.rect
+	//	glyphs[idx] = {
+	//		value = ag.value,
+	//		offsetX = i32(ag.offset_x),
+	//		offsetY = i32(ag.offset_y),
+	//		advanceX = i32(ag.advance_x),
+	//	}
+	//} 
 
-	g_mem.font = {
-		baseSize = ATLAS_FONT_SIZE,
-		glyphCount = i32(num_glyphs),
-		glyphPadding = 0,
-		texture = g_mem.atlas,
-		recs = raw_data(font_rects),
-		glyphs = raw_data(glyphs),
-	}
+	//g_mem.font = {
+	//	baseSize = ATLAS_FONT_SIZE,
+	//	glyphCount = i32(num_glyphs),
+	//	glyphPadding = 0,
+	//	texture = g_mem.atlas,
+	//	recs = raw_data(font_rects),
+	//	glyphs = raw_data(glyphs),
+	//}
 	
 	world_def := b2.DefaultWorldDef()
 	world_def.gravity = GRAVITY
@@ -391,14 +410,14 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 }
 
 shutdown :: proc() {
-	mem.free(g_mem.font.recs)
-	mem.free(g_mem.font.glyphs)
+	//mem.free(g_mem.font.recs)
+	//mem.free(g_mem.font.glyphs)
 	mem.delete(g_mem.pivots)
 	free(g_mem)
 }
 
 shutdown_window :: proc() {
-	rl.CloseAudioDevice()
-	rl.CloseWindow()
+	//rl.CloseAudioDevice()
+	//rl.CloseWindow()
 }
 

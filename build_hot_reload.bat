@@ -82,6 +82,22 @@ if not exist "raylib.dll" (
 	)
 )
 
+if not exist "SDL3.dll" (
+	set ODIN_PATH=
+
+	for /f %%i in ('odin root') do set "ODIN_PATH=%%i"
+
+	if exist "%ODIN_PATH%\vendor\sdl3\SDL3.dll" (
+		echo SDL3.dll not found in current directory. Copying from %ODIN_PATH%\vendor\sdl3\SDL3.dll
+		copy "%ODIN_PATH%\vendor\sdl3\SDL3.dll" .
+		IF %ERRORLEVEL% NEQ 0 exit /b 1
+	) else (
+		echo "Please copy SDL3.dll from <your_odin_compiler>/vendor/sdl3/SDL3.dll to the same directory as game.exe"
+		exit /b 1
+	)
+
+)
+
 if not exist "box2d.dll" (
 	copy source\box2d\lib\box2d.dll .
 )

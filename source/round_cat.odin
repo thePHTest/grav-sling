@@ -88,32 +88,19 @@ smoothstart5 :: proc(t: f32) -> f32 {
 }
 
 round_cat_draw :: proc(rc: Round_Cat) {
-	a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
-	source := atlas_textures[.Round_Cat].rect
-	pos := body_pos(rc.body)
-	aim_pos := pos + rc.aim_range * rc.aim_direction
-	dest := draw_dest_rect(pos, source)
+	//a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
+	//source := atlas_textures[.Round_Cat].rect
+	//pos := body_pos(rc.body)
+	//aim_pos := pos + rc.aim_range * rc.aim_direction
+	//dest := draw_dest_rect(pos, source)
+
+	//rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
 	
-	//rl.DrawCircleV(vec2_flip(pos), rc.aim_range, rl.BLACK)
-
-	/*t := f32(remap(rl.GetTime(), rc.squish_start, rc.squish_start + 0.5, 0, 1))
-
-	sq := math.lerp(rc.squish_direction * rc.squish_amount, Vec2{}, smoothstart5(t))
-
-	dest.width *= 1-sq.x
-	dest.height *= 1-sq.y
-	dest.x += sq.x*2
-	dest.y += sq.y*2
-
-	// rlgl scale?*/
-
-	rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
-	
-	rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
+	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
 	
 	if rc.distance_joint_pivot_id != {} {
-		pivot_pos := body_pos(rc.distance_joint_pivot_id)
-		rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
+		//pivot_pos := body_pos(rc.distance_joint_pivot_id)
+		//rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
 	}
 
 	if rc.pivot.body != {} {
@@ -210,7 +197,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		vel := c.manifold.points[0].normalVelocity
 
 		if abs(vel) > 10 {
-			rl.PlaySound(g_mem.land_sound)
+			//rl.PlaySound(g_mem.land_sound)
 		}
 	}
 
