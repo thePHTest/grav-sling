@@ -1,9 +1,9 @@
 package game
 
 import b2 "box2d"
-import rl "vendor:raylib"
+//import rl "vendor:raylib"
 import sdl "vendor:sdl3"
-//import im "deps:odin-imgui"
+import im "deps:odin-imgui"
 import "core:fmt"
 import "core:log"
 //import "core:math"
@@ -28,8 +28,6 @@ Pivot :: struct {
 }
 
 Game_Memory :: struct {
-	window: ^sdl.Window,
-
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	rc: Round_Cat,
@@ -59,6 +57,7 @@ Game_Memory :: struct {
 
 //atlas: rl.Texture2D
 g_mem: ^Game_Memory
+g_window: ^sdl.Window
 //font: rl.Font
 
 refresh_globals :: proc() {
@@ -68,20 +67,29 @@ refresh_globals :: proc() {
 
 GAME_SCALE :: 10
 
-game_camera :: proc() -> rl.Camera2D {
-	w := f32(rl.GetScreenWidth())
-	h := f32(rl.GetScreenHeight())
+Camera2D :: struct {
+	offset:   Vec2,            // Camera offset (displacement from target)
+	target:   Vec2,            // Camera target (rotation and zoom origin)
+	rotation: f32,                // Camera rotation in degrees
+	zoom:     f32,                // Camera zoom (scaling), should be 1.0f by default
+}
+
+game_camera :: proc() -> Camera2D {
+	assert(false, "unimplemented")
+
+	//w := f32(rl.GetScreenWidth())
+	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
-		//target = vec2_flip(round_cat_pos(g_mem.rc)),
-		offset = { w/2, h/2 },
+		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
+		//offset = { w/2, h/2 },
 	}
 }
 
-ui_camera :: proc() -> rl.Camera2D {
+ui_camera :: proc() -> Camera2D {
+	assert(false, "unimplemented")
 	return {
-		zoom = f32(rl.GetScreenHeight())/PIXEL_WINDOW_HEIGHT,
+		//zoom = f32(rl.GetScreenHeight())/PIXEL_WINDOW_HEIGHT,
 	}
 }
 
@@ -93,6 +101,8 @@ dt: f32
 real_dt: f32
 
 update :: proc() {
+	assert(false, "unimplemented")
+	/*
 	dt = rl.GetFrameTime()
 	real_dt = dt
 
@@ -127,6 +137,7 @@ update :: proc() {
 	}
 
 	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
+	*/
 }
 
 Collision_Category :: enum u32 {
@@ -209,12 +220,16 @@ QUIT_POS :: Vec2 {70, 130+10}
 
 MENU_BUTTON_SIZE :: Vec2 {120, 20}
 
-get_world_mouse_pos :: proc(cam: rl.Camera2D) -> Vec2 {
-	return vec2_flip(rl.GetScreenToWorld2D(rl.GetMousePosition(), cam))
+get_world_mouse_pos :: proc(cam: Camera2D) -> Vec2 {
+	assert(false, "unimplemented")
+	return Vec2{}
+	//return vec2_flip(rl.GetScreenToWorld2D(rl.GetMousePosition(), cam))
 }
 
 get_mouse_pos :: proc() -> Vec2 {
-	return vec2_flip(rl.GetMousePosition())
+	assert(false, "unimplemented")
+	return Vec2{}
+	//return vec2_flip(rl.GetMousePosition())
 }
 
 
@@ -226,7 +241,8 @@ vec2_flip :: proc(p: Vec2) -> Vec2 {
 
 IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
 
-init_window :: proc() {
+init_window :: proc() -> bool {
+	log.info("init sdl and window...")
 	/*
 	flags: rl.ConfigFlags
 
@@ -253,15 +269,76 @@ init_window :: proc() {
 
 	if !sdl.Init({.AUDIO, .VIDEO, .EVENTS, .GAMEPAD}) {
 		log.error("sdl.Init() failed:", sdl.GetError())
+		return false
 	}
+
+	// TODO: proper handling of display scale
+	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
+	window_flags := sdl.WindowFlags{.RESIZABLE, .HIDDEN, .HIGH_PIXEL_DENSITY}
 
 	// TODO: Proper window size settings
 	// TODO: Proper indow flags settings
-	g_mem.window = sdl.CreateWindow(GAME_TITLE, 1920, 1080, {.RESIZABLE})
-	if g_mem.window == nil {
+	g_window = sdl.CreateWindow(GAME_TITLE, i32(1280 * main_scale), i32(1080 * main_scale), window_flags)
+	if g_window == nil {
 		log.error("sdl.CreateWindow() failed:", sdl.GetError())
+		return false
+	}
+	log.info("init sdl and window success")
+
+	sdl.SetWindowPosition(g_window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
+	sdl.ShowWindow(g_window)
+
+	// TODO: This following stuff should maybe be moved to init instead? Depends on what is needed for hot reload
+
+	// Create GPU Device
+	// TODO: disable debug mode in release builds. Name the device
+	gpu_device := sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL, .METALLIB}, true, nil)
+	if gpu_device == nil {
+		log.error("sdl.CreateGPUDevice() failed:", sdl.GetError())
+		return false
 	}
 
+	// Claim window for GPU Device
+	if !sdl.ClaimWindowForGPUDevice(gpu_device, g_window) {
+		log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
+		return false
+	}
+
+	if !sdl.SetGPUSwapchainParameters(gpu_device, g_window, .SDR, .VSYNC) {
+		log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
+		// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
+		return false
+	}
+
+	// Setup Dear ImGui context
+	im.CHECKVERSION()
+	im.CreateContext()
+	io := im.GetIO()
+	io.ConfigFlags += {.NavEnableKeyboard}
+	io.ConfigFlags += {.NavEnableGamepad}
+	io.ConfigFlags += {.DockingEnable}
+	io.ConfigFlags += {.ViewportsEnable}
+
+	// Setup Deaf ImGui style
+	im.StyleColorsDark()
+
+	// Setup scaling
+	style := im.GetStyle()
+	im.Style_ScaleAllSizes(style, main_scale)
+	style.FontScaleDpi = main_scale
+	io.ConfigDpiScaleFonts = true
+	io.ConfigDpiScaleViewports = true
+
+	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
+	if .ViewportsEnable in io.ConfigFlags {
+		style.WindowRounding = 0.0
+		style.Colors[im.Col.WindowBg] = 1.0
+	}
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplSDL3_InitForSDLGPU(g_window)
+
+	return true
 }
 
 Vec2 :: [2]f32
@@ -410,14 +487,18 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 }
 
 shutdown :: proc() {
+	log.info("shutdown...")
 	//mem.free(g_mem.font.recs)
 	//mem.free(g_mem.font.glyphs)
 	mem.delete(g_mem.pivots)
 	free(g_mem)
+	log.info("shutdown complete")
 }
 
 shutdown_window :: proc() {
+	log.info("shutdown sdl and window...")
 	//rl.CloseAudioDevice()
 	//rl.CloseWindow()
+	log.info("shutdown sdl and window complete")
 }
 

@@ -102,6 +102,7 @@ main :: proc() {
 	os.set_current_directory(exe_dir)
 
 	context.logger = log.create_console_logger()
+	log.info("Console logger created")
 
 	default_allocator := context.allocator
 	tracking_allocator: mem.Tracking_Allocator
