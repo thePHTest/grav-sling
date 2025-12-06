@@ -58,6 +58,7 @@ Game_Memory :: struct {
 //atlas: rl.Texture2D
 g_mem: ^Game_Memory
 g_window: ^sdl.Window
+g_gpu_device: ^sdl.GPUDevice
 //font: rl.Font
 
 refresh_globals :: proc() {
@@ -103,7 +104,6 @@ show_demo_window := true
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc() {
-	log.info("update start")
 	/*
 	dt = rl.GetFrameTime()
 	real_dt = dt
@@ -207,7 +207,51 @@ update :: proc() {
 		}
 		im.End()
 	}
-	log.info("update end")
+
+	// Rendering
+	im.Render()
+	draw_data := im.GetDrawData()
+	is_minimized := draw_data.DisplaySize.x <= 0.0 || draw_data.DisplaySize.y <= 0.0
+
+	command_buffer := sdl.AcquireGPUCommandBuffer(g_gpu_device) // Acquire a GPU command buffer
+
+	swapchain_texture : ^sdl.GPUTexture
+	if !sdl.WaitAndAcquireGPUSwapchainTexture(command_buffer, g_window, &swapchain_texture, nil, nil) {// Acquire a swapchain texture
+		log.error("sdl.WaitAndAcquireGPUSwapchainTexture() failed:", sdl.GetError())
+	}
+
+	if swapchain_texture != nil && !is_minimized {
+		// This is mandatory: call ImGui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
+		ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer)
+
+		// Setup and start a render pass
+		target_info : sdl.GPUColorTargetInfo
+		target_info.texture = swapchain_texture
+		target_info.clear_color = sdl.FColor { clear_color.x, clear_color.y, clear_color.z, 1.0 }
+		target_info.load_op = .CLEAR
+		target_info.store_op = .STORE
+		target_info.mip_level = 0
+		target_info.layer_or_depth_plane = 0
+		target_info.cycle = false
+		render_pass := sdl.BeginGPURenderPass(command_buffer, &target_info, 1, nil)
+
+		// Render ImGui
+		ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass)
+
+		sdl.EndGPURenderPass(render_pass)
+	}
+
+	io := im.GetIO()
+	// Update and Render additional Platform Windows
+	if .ViewportsEnable in io.ConfigFlags {
+		im.UpdatePlatformWindows()
+		im.RenderPlatformWindowsDefault()
+	}
+
+	// Submit the command buffer
+	if !sdl.SubmitGPUCommandBuffer(command_buffer) {
+		log.error("sdl.SubmitGPUCommandBuffer() failed:", sdl.GetError())
+	}
 }
 
 Collision_Category :: enum u32 {
@@ -362,19 +406,19 @@ init_window :: proc() -> bool {
 
 	// Create GPU Device
 	// TODO: disable debug mode in release builds. Name the device
-	gpu_device := sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL, .METALLIB}, true, nil)
-	if gpu_device == nil {
+	g_gpu_device = sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL, .METALLIB}, true, nil)
+	if g_gpu_device == nil {
 		log.error("sdl.CreateGPUDevice() failed:", sdl.GetError())
 		return false
 	}
 
 	// Claim window for GPU Device
-	if !sdl.ClaimWindowForGPUDevice(gpu_device, g_window) {
+	if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_window) {
 		log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
 		return false
 	}
 
-	if !sdl.SetGPUSwapchainParameters(gpu_device, g_window, .SDR, .VSYNC) {
+	if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_window, .SDR, .VSYNC) {
 		log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
 		// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
 		return false
@@ -408,8 +452,8 @@ init_window :: proc() -> bool {
 	// Setup Platform/Renderer backends
 	ImGui_ImplSDL3_InitForSDLGPU(g_window)
 	init_info : ImGui_ImplSDLGPU3_InitInfo
-    init_info.device = gpu_device
-    init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(gpu_device, g_window)
+    init_info.device = g_gpu_device
+    init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
     init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
     init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
     init_info.present_mode = .VSYNC
@@ -581,6 +625,19 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 	pivot.shape = b2.CreateCircleShape(pivot.body, shape_def, circle)
 	return pivot
 }
+
+// TODO: Add this cleanup stuff from the imgui examples main.cpp
+ // Cleanup
+    // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
+    //SDL_WaitForGPUIdle(g_gpu_device);
+    //ImGui_ImplSDL3_Shutdown();
+    //ImGui_ImplSDLGPU3_Shutdown();
+    //ImGui::DestroyContext();
+
+    //SDL_ReleaseWindowFromGPUDevice(g_gpu_device, window);
+    //SDL_DestroyGPUDevice(g_gpu_device);
+    //SDL_DestroyWindow(window);
+    //SDL_Quit();
 
 shutdown :: proc() {
 	log.info("shutdown...")
