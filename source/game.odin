@@ -99,9 +99,11 @@ physics_world :: proc() -> b2.WorldId {
 
 dt: f32
 real_dt: f32
-
+show_demo_window := true
+show_another_window := false
+clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc() {
-	assert(false, "unimplemented")
+	log.info("update start")
 	/*
 	dt = rl.GetFrameTime()
 	real_dt = dt
@@ -138,6 +140,74 @@ update :: proc() {
 
 	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
 	*/
+	// Poll and handle events (inputs, window resize, etc.)
+	// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
+	// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
+	// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
+	// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+	// [If using SDL_MAIN_USE_CALLBACKS: call ImGui_ImplSDL3_ProcessEvent() from your SDL_AppEvent() function]
+	event : sdl.Event
+	for sdl.PollEvent(&event) {
+		ImGui_ImplSDL3_ProcessEvent(&event)
+		if event.type == .QUIT {
+			g_mem.finished = true
+		}
+		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
+			g_mem.finished = true
+		}
+	}
+
+	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
+	if .MINIMIZED in sdl.GetWindowFlags(g_window) {
+		sdl.Delay(10)
+		return
+	}
+
+	// Start the Dear ImGui frame
+	ImGui_ImplSDLGPU3_NewFrame()
+	ImGui_ImplSDL3_NewFrame()
+	im.NewFrame()
+
+	// 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+	if show_demo_window {
+		im.ShowDemoWindow(&show_demo_window)
+	}
+
+	// 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
+	{
+		f : f32 = 0.0
+		counter : int = 0
+
+		im.Begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
+
+		im.Text("This is some useful text.")               // Display some text (you can use a format strings too)
+		im.Checkbox("Demo Window", &show_demo_window)      // Edit bools storing our window open/close state
+		im.Checkbox("Another Window", &show_another_window)
+
+		im.SliderFloat("float", &f, 0.0, 1.0)            // Edit 1 float using a slider from 0.0f to 1.0f
+		im.ColorEdit3("clear color", &clear_color) // Edit 3 floats representing a color
+
+		if im.Button("Button") {                           // Buttons return true when clicked (most widgets return true when edited/activated)
+			counter += 1
+		}
+		im.SameLine()
+		im.Text("counter = %d", counter)
+
+		io := im.GetIO()
+		im.Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0 / io.Framerate, io.Framerate)
+		im.End()
+	}
+
+	// 3. Show another simple window.
+	if show_another_window {
+		im.Begin("Another Window", &show_another_window)   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
+		im.Text("Hello from another window!")
+		if im.Button("Close Me") {
+			show_another_window = false
+		}
+		im.End()
+	}
+	log.info("update end")
 }
 
 Collision_Category :: enum u32 {
@@ -361,6 +431,7 @@ init_window :: proc() -> bool {
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
 
+	log.info("init_window finished")
 	return true
 }
 
@@ -462,6 +533,8 @@ init :: proc() {
 	g_mem.right_wall = wall_make(Rect{field_width/2, -field_height/2, wall_thickness, field_height})
 	g_mem.top_wall = wall_make(Rect{-field_width/2, field_height/2, field_width, wall_thickness})
 	g_mem.bottom_wall = wall_make(Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
+
+	fmt.println("init finished")
 }
 
 wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {

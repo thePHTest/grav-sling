@@ -62,7 +62,7 @@ backend_deps = {
 }
 
 # @CONFIGURE:
-compile_debug = False
+compile_debug = True
 
 # @CONFIGURE:
 build_imgui_internal = True

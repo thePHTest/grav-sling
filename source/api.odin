@@ -1,7 +1,5 @@
 package game
 
-import rl "vendor:raylib"
-
 @(export)
 game_init :: proc() {
 	init()
@@ -20,7 +18,9 @@ game_update :: proc() {
 
 @(export)
 game_should_close :: proc() -> bool {
-	return rl.WindowShouldClose()
+	// TODO
+	return false
+	//return rl.WindowShouldClose()
 }
 
 @(export)
@@ -51,15 +51,20 @@ game_hot_reloaded :: proc(mem: rawptr) {
 
 @(export)
 game_force_reload :: proc() -> bool {
-	return rl.IsKeyPressed(.F5)
+	// TODO
+	return false
+	//return rl.IsKeyPressed(.F5)
 }
 
 @(export)
 game_force_restart :: proc() -> bool {
-	return rl.IsKeyPressed(.F6)
+	// TODO
+	return false
+	//return rl.IsKeyPressed(.F6)
 }
 
 @(export)
 parent_window_size_changed :: proc "c" (w, h: int) {
-	rl.SetWindowSize(i32(w), i32(h))
+	// TODO:
+	//rl.SetWindowSize(i32(w), i32(h))
 }

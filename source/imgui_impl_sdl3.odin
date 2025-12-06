@@ -1145,11 +1145,11 @@ when ODIN_OS != .Darwin {
 }
 }
 
-ImGui_ImplSDL3_GetWindowPos :: proc "c" (viewport : ^im.Viewport) -> im.Vec2 {
+ImGui_ImplSDL3_GetWindowPos :: proc "c" (viewport : ^im.Viewport, result : ^im.Vec2) {
 	vd := cast(^ImGui_ImplSDL3_ViewportData)viewport.PlatformUserData
     x,y : c.int = 0,0
     sdl.GetWindowPosition(vd.window, &x, &y)
-    return im.Vec2{f32(x), f32(y)}
+    result^ = im.Vec2{f32(x), f32(y)}
 }
 
 ImGui_ImplSDL3_SetWindowPos :: proc "c" (viewport : ^im.Viewport, pos : im.Vec2) {
@@ -1157,11 +1157,11 @@ ImGui_ImplSDL3_SetWindowPos :: proc "c" (viewport : ^im.Viewport, pos : im.Vec2)
     sdl.SetWindowPosition(vd.window, c.int(pos.x), c.int(pos.y))
 }
 
-ImGui_ImplSDL3_GetWindowSize :: proc "c" (viewport: ^im.Viewport) -> im.Vec2 {
+ImGui_ImplSDL3_GetWindowSize :: proc "c" (viewport: ^im.Viewport, result : ^im.Vec2) {
 	vd := cast(^ImGui_ImplSDL3_ViewportData)viewport.PlatformUserData
     w,h : c.int = 0,0
     sdl.GetWindowSize(vd.window, &w, &h)
-    return im.Vec2{f32(w), f32(h)}
+    result^ = im.Vec2{f32(w), f32(h)}
 }
 
 ImGui_ImplSDL3_SetWindowSize :: proc "c" (viewport : ^im.Viewport, size : im.Vec2) {
@@ -1169,11 +1169,11 @@ ImGui_ImplSDL3_SetWindowSize :: proc "c" (viewport : ^im.Viewport, size : im.Vec
     sdl.SetWindowSize(vd.window, c.int(size.x), c.int(size.y))
 }
 
-ImGui_ImplSDL3_GetWindowFramebufferScale :: proc "c" (viewport : ^im.Viewport) -> im.Vec2 {
+ImGui_ImplSDL3_GetWindowFramebufferScale :: proc "c" (viewport : ^im.Viewport, result : ^im.Vec2) {
 	vd := cast(^ImGui_ImplSDL3_ViewportData)viewport.PlatformUserData
     framebuffer_scale : im.Vec2
     ImGui_ImplSDL3_GetWindowSizeAndFramebufferScale(vd.window, nil, &framebuffer_scale)
-    return framebuffer_scale
+    result^ = framebuffer_scale
 }
 
 ImGui_ImplSDL3_SetWindowTitle :: proc "c" (viewport : ^im.Viewport, title : cstring) {
@@ -1235,10 +1235,16 @@ ImGui_ImplSDL3_InitMultiViewportSupport :: proc(window: ^sdl.Window, sdl_gl_cont
     platform_io.Platform_ShowWindow = ImGui_ImplSDL3_ShowWindow
     platform_io.Platform_UpdateWindow = ImGui_ImplSDL3_UpdateWindow
     platform_io.Platform_SetWindowPos = ImGui_ImplSDL3_SetWindowPos
-    platform_io.Platform_GetWindowPos = ImGui_ImplSDL3_GetWindowPos
+	// Note that we have to set this proc a special way due to im.Viewport being a derived class of im.ViewportP
+    //platform_io.Platform_GetWindowPos = ImGui_ImplSDL3_GetWindowPos
+	im.PlatformIO_SetPlatform_GetWindowPos(ImGui_ImplSDL3_GetWindowPos)
     platform_io.Platform_SetWindowSize = ImGui_ImplSDL3_SetWindowSize
-    platform_io.Platform_GetWindowSize = ImGui_ImplSDL3_GetWindowSize
-    platform_io.Platform_GetWindowFramebufferScale = ImGui_ImplSDL3_GetWindowFramebufferScale
+	// Note that we have to set this proc a special way due to im.Viewport being a derived class of im.ViewportP
+    //platform_io.Platform_GetWindowSize = ImGui_ImplSDL3_GetWindowSize
+	im.PlatformIO_SetPlatform_GetWindowSize(ImGui_ImplSDL3_GetWindowSize)
+	// Note that we have to set this proc a special way due to im.Viewport being a derived class of im.ViewportP
+    //platform_io.Platform_GetWindowFramebufferScale = ImGui_ImplSDL3_GetWindowFramebufferScale
+	im.PlatformIO_SetPlatform_GetWindowFramebufferScale(ImGui_ImplSDL3_GetWindowFramebufferScale)
     platform_io.Platform_SetWindowFocus = ImGui_ImplSDL3_SetWindowFocus
     platform_io.Platform_GetWindowFocus = ImGui_ImplSDL3_GetWindowFocus
     platform_io.Platform_GetWindowMinimized = ImGui_ImplSDL3_GetWindowMinimized
@@ -1247,6 +1253,7 @@ ImGui_ImplSDL3_InitMultiViewportSupport :: proc(window: ^sdl.Window, sdl_gl_cont
     platform_io.Platform_SwapBuffers = ImGui_ImplSDL3_SwapBuffers
     platform_io.Platform_SetWindowAlpha = ImGui_ImplSDL3_SetWindowAlpha
     platform_io.Platform_CreateVkSurface = ImGui_ImplSDL3_CreateVkSurface
+
 
     // Register main window handle (which is owned by the main application, not by us)
     // This is mostly for simplicity and consistency, so that our code (e.g. mouse handling etc.) can use same logic for main and secondary viewports.
