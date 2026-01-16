@@ -13,6 +13,8 @@ import "core:strings"
 GAME_TITLE :: "GravSling"
 PIXEL_WINDOW_HEIGHT :: 1080
 
+RENDERER_SDL_GPU :: false
+
 Wall :: struct {
 	body: b2.BodyId,
 	shape: b2.ShapeId,
@@ -58,7 +60,11 @@ Game_Memory :: struct {
 //atlas: rl.Texture2D
 g_mem: ^Game_Memory
 g_window: ^sdl.Window
+when RENDERER_SDL_GPU {
 g_gpu_device: ^sdl.GPUDevice
+} else {
+g_sdl_renderer: ^sdl.Renderer
+}
 //font: rl.Font
 
 refresh_globals :: proc() {
@@ -164,7 +170,11 @@ update :: proc() {
 	}
 
 	// Start the Dear ImGui frame
-	ImGui_ImplSDLGPU3_NewFrame()
+	when RENDERER_SDL_GPU {
+		ImGui_ImplSDLGPU3_NewFrame()
+	} else {
+		ImGui_ImplSDLRenderer3_NewFrame()
+	}
 	ImGui_ImplSDL3_NewFrame()
 	im.NewFrame()
 
@@ -209,48 +219,58 @@ update :: proc() {
 	}
 
 	// Rendering
-	im.Render()
-	draw_data := im.GetDrawData()
-	is_minimized := draw_data.DisplaySize.x <= 0.0 || draw_data.DisplaySize.y <= 0.0
+	when RENDERER_SDL_GPU {
+		im.Render()
+		draw_data := im.GetDrawData()
+		is_minimized := draw_data.DisplaySize.x <= 0.0 || draw_data.DisplaySize.y <= 0.0
 
-	command_buffer := sdl.AcquireGPUCommandBuffer(g_gpu_device) // Acquire a GPU command buffer
+		command_buffer := sdl.AcquireGPUCommandBuffer(g_gpu_device) // Acquire a GPU command buffer
 
-	swapchain_texture : ^sdl.GPUTexture
-	if !sdl.WaitAndAcquireGPUSwapchainTexture(command_buffer, g_window, &swapchain_texture, nil, nil) {// Acquire a swapchain texture
-		log.error("sdl.WaitAndAcquireGPUSwapchainTexture() failed:", sdl.GetError())
-	}
+		swapchain_texture : ^sdl.GPUTexture
+		if !sdl.WaitAndAcquireGPUSwapchainTexture(command_buffer, g_window, &swapchain_texture, nil, nil) {// Acquire a swapchain texture
+			log.error("sdl.WaitAndAcquireGPUSwapchainTexture() failed:", sdl.GetError())
+		}
 
-	if swapchain_texture != nil && !is_minimized {
-		// This is mandatory: call ImGui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
-		ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer)
+		if swapchain_texture != nil && !is_minimized {
+			// This is mandatory: call ImGui_ImplSDLGPU3_PrepareDrawData() to upload the vertex/index buffer!
+			ImGui_ImplSDLGPU3_PrepareDrawData(draw_data, command_buffer)
 
-		// Setup and start a render pass
-		target_info : sdl.GPUColorTargetInfo
-		target_info.texture = swapchain_texture
-		target_info.clear_color = sdl.FColor { clear_color.x, clear_color.y, clear_color.z, 1.0 }
-		target_info.load_op = .CLEAR
-		target_info.store_op = .STORE
-		target_info.mip_level = 0
-		target_info.layer_or_depth_plane = 0
-		target_info.cycle = false
-		render_pass := sdl.BeginGPURenderPass(command_buffer, &target_info, 1, nil)
+			// Setup and start a render pass
+			target_info : sdl.GPUColorTargetInfo
+			target_info.texture = swapchain_texture
+			target_info.clear_color = sdl.FColor { clear_color.x, clear_color.y, clear_color.z, 1.0 }
+			target_info.load_op = .CLEAR
+			target_info.store_op = .STORE
+			target_info.mip_level = 0
+			target_info.layer_or_depth_plane = 0
+			target_info.cycle = false
+			render_pass := sdl.BeginGPURenderPass(command_buffer, &target_info, 1, nil)
 
-		// Render ImGui
-		ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass)
+			// Render ImGui
+			ImGui_ImplSDLGPU3_RenderDrawData(draw_data, command_buffer, render_pass)
 
-		sdl.EndGPURenderPass(render_pass)
-	}
+			sdl.EndGPURenderPass(render_pass)
+		}
 
-	io := im.GetIO()
-	// Update and Render additional Platform Windows
-	if .ViewportsEnable in io.ConfigFlags {
-		im.UpdatePlatformWindows()
-		im.RenderPlatformWindowsDefault()
-	}
+		io := im.GetIO()
+		// Update and Render additional Platform Windows
+		if .ViewportsEnable in io.ConfigFlags {
+			im.UpdatePlatformWindows()
+			im.RenderPlatformWindowsDefault()
+		}
 
-	// Submit the command buffer
-	if !sdl.SubmitGPUCommandBuffer(command_buffer) {
-		log.error("sdl.SubmitGPUCommandBuffer() failed:", sdl.GetError())
+		// Submit the command buffer
+		if !sdl.SubmitGPUCommandBuffer(command_buffer) {
+			log.error("sdl.SubmitGPUCommandBuffer() failed:", sdl.GetError())
+		}
+	} else {
+		im.Render()
+		io := im.GetIO()
+        sdl.SetRenderScale(g_sdl_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
+        sdl.SetRenderDrawColorFloat(g_sdl_renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
+        sdl.RenderClear(g_sdl_renderer)
+        ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_sdl_renderer)
+        sdl.RenderPresent(g_sdl_renderer)
 	}
 }
 
@@ -399,29 +419,39 @@ init_window :: proc() -> bool {
 	}
 	log.info("init sdl and window success")
 
+	when !RENDERER_SDL_GPU {
+		g_sdl_renderer = sdl.CreateRenderer(g_window, nil)
+		sdl.SetRenderVSync(g_sdl_renderer, 1)
+		if g_sdl_renderer == nil {
+			log.error("Error: SDL_CreateRenderer(): %s\n", sdl.GetError())
+			return false
+		}
+	}
+
 	sdl.SetWindowPosition(g_window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
 	sdl.ShowWindow(g_window)
 
-	// TODO: This following stuff should maybe be moved to init instead? Depends on what is needed for hot reload
+	when RENDERER_SDL_GPU {
+		// TODO: This following stuff should maybe be moved to init instead? Depends on what is needed for hot reload
+		// Create GPU Device
+		// TODO: disable debug mode in release builds. Name the device
+		g_gpu_device = sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL, .METALLIB}, true, nil)
+		if g_gpu_device == nil {
+			log.error("sdl.CreateGPUDevice() failed:", sdl.GetError())
+			return false
+		}
 
-	// Create GPU Device
-	// TODO: disable debug mode in release builds. Name the device
-	g_gpu_device = sdl.CreateGPUDevice({.SPIRV, .DXIL, .MSL, .METALLIB}, true, nil)
-	if g_gpu_device == nil {
-		log.error("sdl.CreateGPUDevice() failed:", sdl.GetError())
-		return false
-	}
+		// Claim window for GPU Device
+		if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_window) {
+			log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
+			return false
+		}
 
-	// Claim window for GPU Device
-	if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_window) {
-		log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
-		return false
-	}
-
-	if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_window, .SDR, .VSYNC) {
-		log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
-		// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
-		return false
+		if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_window, .SDR, .VSYNC) {
+			log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
+			// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
+			return false
+		}
 	}
 
 	// Setup Dear ImGui context
@@ -446,18 +476,23 @@ init_window :: proc() -> bool {
 	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
 	if .ViewportsEnable in io.ConfigFlags {
 		style.WindowRounding = 0.0
-		style.Colors[im.Col.WindowBg] = 1.0
+		style.Colors[im.Col.WindowBg].w = 1.0
 	}
 
-	// Setup Platform/Renderer backends
-	ImGui_ImplSDL3_InitForSDLGPU(g_window)
-	init_info : ImGui_ImplSDLGPU3_InitInfo
-    init_info.device = g_gpu_device
-    init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
-    init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
-    init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
-    init_info.present_mode = .VSYNC
-    ImGui_ImplSDLGPU3_Init(&init_info)
+	when RENDERER_SDL_GPU {
+		// Setup Platform/Renderer backends
+		ImGui_ImplSDL3_InitForSDLGPU(g_window)
+		init_info : ImGui_ImplSDLGPU3_InitInfo
+		init_info.device = g_gpu_device
+		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
+		init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
+		init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
+		init_info.present_mode = .VSYNC
+		ImGui_ImplSDLGPU3_Init(&init_info)
+	} else {
+		ImGui_ImplSDL3_InitForSDLRenderer(g_window, g_sdl_renderer)
+		ImGui_ImplSDLRenderer3_Init(g_sdl_renderer)
+	}
 
 	// Load Fonts
     // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
@@ -638,6 +673,8 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
     //SDL_DestroyGPUDevice(g_gpu_device);
     //SDL_DestroyWindow(window);
     //SDL_Quit();
+
+	// TODO: Add cleanup from imgui example for sdl renderer 3
 
 shutdown :: proc() {
 	log.info("shutdown...")

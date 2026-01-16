@@ -17,8 +17,8 @@ import random
 # @CONFIGURE: Must be key into below table
 # Note that the backend files and examples may also have to be updated, if you use these.
 git_heads = {
-	"imgui": "v1.92.4-docking",
-	"dear_bindings": "2b12a29",
+	"imgui": "42e91c3",
+	"dear_bindings": "c804927",
 }
 
 # Note - tested with Odin version `dev-2025-01`

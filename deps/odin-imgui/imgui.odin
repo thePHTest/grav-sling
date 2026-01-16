@@ -17,12 +17,12 @@ CHECKVERSION :: proc() {
 // DEFINES
 ////////////////////////////////////////////////////////////
 
-VERSION                      :: "1.92.4"
-VERSION_NUM                  :: 19240
-PAYLOAD_TYPE_COLOR_3F        :: "_COL3F" // float[3]: Standard type for colors, without alpha. User code may use this type.
-PAYLOAD_TYPE_COLOR_4F        :: "_COL4F" // float[4]: Standard type for colors. User code may use this type.
-UNICODE_CODEPOINT_INVALID    :: 0xFFFD   // Invalid Unicode code point (standard value).
-UNICODE_CODEPOINT_MAX        :: 0xFFFF   // Maximum Unicode code point supported by this build.
+VERSION                      :: "1.92.6 WIP"
+VERSION_NUM                  :: 19252
+PAYLOAD_TYPE_COLOR_3F        :: "_COL3F"     // float[3]: Standard type for colors, without alpha. User code may use this type.
+PAYLOAD_TYPE_COLOR_4F        :: "_COL4F"     // float[4]: Standard type for colors. User code may use this type.
+UNICODE_CODEPOINT_INVALID    :: 0xFFFD       // Invalid Unicode code point (standard value).
+UNICODE_CODEPOINT_MAX        :: 0xFFFF       // Maximum Unicode code point supported by this build.
 DRAWLIST_TEX_LINES_WIDTH_MAX :: 32
 
 ////////////////////////////////////////////////////////////
@@ -50,18 +50,16 @@ WindowFlag :: enum c.int {
 	AlwaysVerticalScrollbar   = 14, // Always show vertical scrollbar (even if ContentSize.y < Size.y)
 	AlwaysHorizontalScrollbar = 15, // Always show horizontal scrollbar (even if ContentSize.x < Size.x)
 	NoNavInputs               = 16, // No keyboard/gamepad navigation within the window
-	NoNavFocus                = 17, // No focusing toward this window with keyboard/gamepad navigation (e.g. skipped by CTRL+TAB)
+	NoNavFocus                = 17, // No focusing toward this window with keyboard/gamepad navigation (e.g. skipped by Ctrl+Tab)
 	UnsavedDocument           = 18, // Display a dot next to the title. When used in a tab/docking context, tab is selected when clicking the X + closure is not assumed (will wait for user to stop submitting the tab). Otherwise closure is assumed when pressing the X, so if you keep submitting the tab may reappear at end of tab bar.
 	NoDocking                 = 19, // Disable docking of this window
 	// [Internal]
-	DockNodeHost           = 23, // Don't use! For internal use by Begin()/NewFrame()
-	ChildWindow            = 24, // Don't use! For internal use by BeginChild()
-	Tooltip                = 25, // Don't use! For internal use by BeginTooltip()
-	Popup                  = 26, // Don't use! For internal use by BeginPopup()
-	Modal                  = 27, // Don't use! For internal use by BeginPopupModal()
-	ChildMenu              = 28, // Don't use! For internal use by BeginMenu()
-	NavFlattened           = 29, // Obsoleted in 1.90.9: Use ImGuiChildFlags_NavFlattened in BeginChild() call.
-	AlwaysUseWindowPadding = 30, // Obsoleted in 1.90.0: Use ImGuiChildFlags_AlwaysUseWindowPadding in BeginChild() call.
+	DockNodeHost = 23, // Don't use! For internal use by Begin()/NewFrame()
+	ChildWindow  = 24, // Don't use! For internal use by BeginChild()
+	Tooltip      = 25, // Don't use! For internal use by BeginTooltip()
+	Popup        = 26, // Don't use! For internal use by BeginPopup()
+	Modal        = 27, // Don't use! For internal use by BeginPopupModal()
+	ChildMenu    = 28, // Don't use! For internal use by BeginMenu()
 }
 
 WindowFlags_NoNav        :: WindowFlags{.NoNavInputs,.NoNavFocus}
@@ -90,7 +88,6 @@ ChildFlag :: enum c.int {
 	NavFlattened           = 8, // [BETA] Share focus scope, allow keyboard/gamepad navigation to cross over parent border to this child or between sibling child windows.
 }
 
-ChildFlags_Border :: ChildFlags{.Borders} // Renamed in 1.91.1 (August 2024) for consistency.
 
 // Flags for ImGui::PushItemFlag()
 // (Those are shared by all items)
@@ -144,7 +141,7 @@ InputTextFlag :: enum c.int {
 	// - It is much slower than regular text fields.
 	//   Ballpark estimate of cost on my 2019 desktop PC: for a 100 KB text buffer: +~0.3 ms (Optimized) / +~1.0 ms (Debug build).
 	//   The CPU cost is very roughly proportional to text length, so a 10 KB buffer should cost about ten times less.
-	WordWrap = 24, // InputTextMultine(): word-wrap lines that are too long.
+	WordWrap = 24, // InputTextMultiline(): word-wrap lines that are too long.
 }
 
 
@@ -168,7 +165,7 @@ TreeNodeFlag :: enum c.int {
 	SpanAllColumns      = 14, // Frame will span all columns of its container table (label will still fit in current column)
 	LabelSpanAllColumns = 15, // Label will span all columns of its container table
 	//ImGuiTreeNodeFlags_NoScrollOnOpen     = 1 << 16,  // FIXME: TODO: Disable automatic scroll on TreePop() if node got just open and contents is not visible
-	NavLeftJumpsToParent = 17, // Nav: left arrow moves back to parent. This is processed in TreePop() when there's an unfullfilled Left nav request remaining.
+	NavLeftJumpsToParent = 17, // Nav: left arrow moves back to parent. This is processed in TreePop() when there's an unfulfilled Left nav request remaining.
 	// [EXPERIMENTAL] Draw lines connecting TreeNode hierarchy. Discuss in GitHub issue #2920.
 	// Default value is pulled from style.TreeLinesFlags. May be overridden in TreeNode calls.
 	DrawLinesNone    = 18, // No lines drawn
@@ -302,7 +299,7 @@ HoveredFlags_RootAndChildWindows          :: HoveredFlags(HoveredFlags_RootWindo
 // Tooltips mode
 // - typically used in IsItemHovered() + SetTooltip() sequence.
 // - this is a shortcut to pull flags from 'style.HoverFlagsForTooltipMouse' or 'style.HoverFlagsForTooltipNav' where you can reconfigure desired behavior.
-//   e.g. 'TooltipHoveredFlagsForMouse' defaults to 'ImGuiHoveredFlags_Stationary | ImGuiHoveredFlags_DelayShort'.
+//   e.g. 'HoverFlagsForTooltipMouse' defaults to 'ImGuiHoveredFlags_Stationary | ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled'.
 // - for frequently actioned or hovered items providing a tooltip, you want may to use ImGuiHoveredFlags_ForTooltip (stationary + delay) so the tooltip doesn't show too often.
 // - for items which main purpose is to be hovered, or items with low affordance, or in less consistent apps, prefer no delay or shorter delay.
 HoveredFlags_ForTooltip :: HoveredFlags(1<<12) // Shortcut for standard flags when using IsItemHovered() + SetTooltip() sequence.
@@ -349,6 +346,7 @@ DragDropFlag :: enum c.int {
 	AcceptBeforeDelivery    = 10, // AcceptDragDropPayload() will returns true even before the mouse button is released. You can then call IsDelivery() to test if the payload needs to be delivered.
 	AcceptNoDrawDefaultRect = 11, // Do not draw the default highlight rectangle when hovering over target.
 	AcceptNoPreviewTooltip  = 12, // Request hiding the BeginDragDropSource tooltip from the BeginDragDropTarget site.
+	AcceptDrawAsHovered     = 13, // Accepting item will render as if hovered. Useful for e.g. a Button() used as a drop target.
 }
 
 DragDropFlags_AcceptPeekOnly          :: DragDropFlags{.AcceptBeforeDelivery,.AcceptNoDrawDefaultRect} // For peeking ahead and inspecting the payload before delivery.
@@ -579,12 +577,8 @@ Key :: enum c.int { // Forward declared enum type ImGuiKey
 	ImGuiMod_Alt = 16384,     // Option/Menu
 	ImGuiMod_Super = 32768,   // Windows/Super (non-macOS), Ctrl (macOS)
 	ImGuiMod_Mask_ = 61440,   // 4-bits
-	COUNT = 667,              // Obsoleted in 1.91.5 because it was extremely misleading (since named keys don't start at 0 anymore)
+	COUNT = 667,              // Obsoleted in 1.91.5 because it was misleading (since named keys don't start at 0 anymore)
 	ImGuiMod_Shortcut = 4096, // Removed in 1.90.7, you can now simply use ImGuiMod_Ctrl
-	ModCtrl = 4096,
-	ModShift = 8192,
-	ModAlt = 16384,
-	ModSuper = 32768,         // Renamed in 1.89
 }
 
 // Flags for Shortcut(), SetNextItemShortcut(),
@@ -602,7 +596,7 @@ InputFlag :: enum c.int {
 	RouteAlways  = 13, // Do not register route, poll keys directly.
 	// - Routing options
 	RouteOverFocused     = 14, // Option: global route: higher priority than focused route (unless active item in focused route).
-	RouteOverActive      = 15, // Option: global route: higher priority than active item. Unlikely you need to use that: will interfere with every active items, e.g. CTRL+A registered by InputText will be overridden by this. May not be fully honored as user/internal code is likely to always assume they can access keys when active.
+	RouteOverActive      = 15, // Option: global route: higher priority than active item. Unlikely you need to use that: will interfere with every active items, e.g. Ctrl+A registered by InputText will be overridden by this. May not be fully honored as user/internal code is likely to always assume they can access keys when active.
 	RouteUnlessBgFocused = 16, // Option: global route: will not be applied if underlying background/void is focused (== no Dear ImGui windows are focused). Useful for overlay applications.
 	RouteFromRootWindow  = 17, // Option: route evaluated from the point of view of root window rather than current window.
 	// Flags for SetNextItemShortcut()
@@ -706,26 +700,27 @@ Col :: enum c.int {
 	TextLink,                  // Hyperlink color
 	TextSelectedBg,            // Selected text inside an InputText
 	TreeLines,                 // Tree node hierarchy outlines when using ImGuiTreeNodeFlags_DrawLines
-	DragDropTarget,            // Rectangle highlighting a drop target
+	DragDropTarget,            // Rectangle border highlighting a drop target
+	DragDropTargetBg,          // Rectangle background highlighting a drop target
 	UnsavedMarker,             // Unsaved Document marker (in window title and tabs)
 	NavCursor,                 // Color of keyboard/gamepad navigation cursor/rectangle, when visible
-	NavWindowingHighlight,     // Highlight window when using CTRL+TAB
-	NavWindowingDimBg,         // Darken/colorize entire screen behind the CTRL+TAB window list, when active
+	NavWindowingHighlight,     // Highlight window when using Ctrl+Tab
+	NavWindowingDimBg,         // Darken/colorize entire screen behind the Ctrl+Tab window list, when active
 	ModalWindowDimBg,          // Darken/colorize entire screen behind a modal window, when one is active
 	COUNT,
 	TabActive = 36,            // [renamed in 1.90.9]
 	TabUnfocused = 38,         // [renamed in 1.90.9]
 	TabUnfocusedActive,        // [renamed in 1.90.9]
-	NavHighlight = 57,         // [renamed in 1.91.4]
+	NavHighlight = 58,         // [renamed in 1.91.4]
 }
 
 // Enumeration for PushStyleVar() / PopStyleVar() to temporarily modify the ImGuiStyle structure.
 // - The enum only refers to fields of ImGuiStyle which makes sense to be pushed/popped inside UI code.
 //   During initialization or between frames, feel free to just poke into ImGuiStyle directly.
 // - Tip: Use your programming IDE navigation facilities on the names in the _second column_ below to find the actual members and their description.
-//   - In Visual Studio: CTRL+comma ("Edit.GoToAll") can follow symbols inside comments, whereas CTRL+F12 ("Edit.GoToImplementation") cannot.
-//   - In Visual Studio w/ Visual Assist installed: ALT+G ("VAssistX.GoToImplementation") can also follow symbols inside comments.
-//   - In VS Code, CLion, etc.: CTRL+click can follow symbols inside comments.
+//   - In Visual Studio: Ctrl+Comma ("Edit.GoToAll") can follow symbols inside comments, whereas Ctrl+F12 ("Edit.GoToImplementation") cannot.
+//   - In Visual Studio w/ Visual Assist installed: Alt+G ("VAssistX.GoToImplementation") can also follow symbols inside comments.
+//   - In VS Code, CLion, etc.: Ctrl+Click can follow symbols inside comments.
 // - When changing this enum, you need to update the associated internal table GStyleVarInfo[] accordingly. This is where we link enum values to members offset/type.
 StyleVar :: enum c.int {
 	// Enum name -------------------------- // Member in ImGuiStyle structure (see ImGuiStyle for descriptions)
@@ -834,9 +829,9 @@ SliderFlags :: bit_set[SliderFlag; c.int]
 SliderFlag :: enum c.int {
 	Logarithmic     = 5,  // Make the widget logarithmic (linear otherwise). Consider using ImGuiSliderFlags_NoRoundToFormat with this if using a format-string with small amount of digits.
 	NoRoundToFormat = 6,  // Disable rounding underlying value to match precision of the display format string (e.g. %.3f values are rounded to those 3 digits).
-	NoInput         = 7,  // Disable CTRL+Click or Enter key allowing to input text directly into the widget.
+	NoInput         = 7,  // Disable Ctrl+Click or Enter key allowing to input text directly into the widget.
 	WrapAround      = 8,  // Enable wrapping around from max to min and from min to max. Only supported by DragXXX() functions for now.
-	ClampOnInput    = 9,  // Clamp value to min/max bounds when input manually with CTRL+Click. By default CTRL+Click allows going out of bounds.
+	ClampOnInput    = 9,  // Clamp value to min/max bounds when input manually with Ctrl+Click. By default Ctrl+Click allows going out of bounds.
 	ClampZeroRange  = 10, // Clamp even if min==max==0.0f. Otherwise due to legacy reason DragXXX functions don't clamp with those values. When your clamping limits are dynamic you almost always want to use it.
 	NoSpeedTweaks   = 11, // Disable keyboard modifiers altering tweak speed. Useful if you want to alter tweak speed yourself based on your own logic.
 }
@@ -1033,7 +1028,7 @@ ListClipperFlag :: enum c.int {
 MultiSelectFlags :: bit_set[MultiSelectFlag; c.int]
 MultiSelectFlag :: enum c.int {
 	SingleSelect          = 0,  // Disable selecting more than one item. This is available to allow single-selection code to share same code/logic if desired. It essentially disables the main purpose of BeginMultiSelect() tho!
-	NoSelectAll           = 1,  // Disable CTRL+A shortcut to select all.
+	NoSelectAll           = 1,  // Disable Ctrl+A shortcut to select all.
 	NoRangeSelect         = 2,  // Disable Shift+selection mouse/keyboard support (useful for unordered 2D selection). With BoxSelect is also ensure contiguous SetRange requests are not combined into one. This allows not handling interpolation in SetRange requests.
 	NoAutoSelect          = 3,  // Disable selecting items when navigating (useful for e.g. supporting range-select in a list of checkboxes).
 	NoAutoClear           = 4,  // Disable clearing selection when navigating or selecting another one (generally used with ImGuiMultiSelectFlags_NoAutoSelect. useful for e.g. supporting range-select in a list of checkboxes).
@@ -1048,7 +1043,8 @@ MultiSelectFlag :: enum c.int {
 	SelectOnClick         = 13, // Apply selection on mouse down when clicking on unselected item. (Default)
 	SelectOnClickRelease  = 14, // Apply selection on mouse release when clicking an unselected item. Allow dragging an unselected item without altering selection.
 	//ImGuiMultiSelectFlags_RangeSelect2d       = 1 << 15,  // Shift+Selection uses 2d geometry instead of linear sequence, so possible to use Shift+up/down to select vertically in grid. Analogous to what BoxSelect does.
-	NavWrapX = 16, // [Temporary] Enable navigation wrapping on X axis. Provided as a convenience because we don't have a design for the general Nav API for this yet. When the more general feature be public we may obsolete this flag in favor of new one.
+	NavWrapX             = 16, // [Temporary] Enable navigation wrapping on X axis. Provided as a convenience because we don't have a design for the general Nav API for this yet. When the more general feature be public we may obsolete this flag in favor of new one.
+	NoSelectOnRightClick = 17, // Disable default right-click processing, which selects item on mouse down, and is designed for context-menus.
 }
 
 
@@ -1360,7 +1356,7 @@ Style :: struct {
 	ColumnsMinSpacing:                f32,           // Minimum horizontal spacing between two columns. Preferably > (FramePadding.x + 1).
 	ScrollbarSize:                    f32,           // Width of the vertical scrollbar, Height of the horizontal scrollbar.
 	ScrollbarRounding:                f32,           // Radius of grab corners for scrollbar.
-	ScrollbarPadding:                 f32,           // Padding of scrollbar grab within its frame (same for both axises).
+	ScrollbarPadding:                 f32,           // Padding of scrollbar grab within its frame (same for both axes).
 	GrabMinSize:                      f32,           // Minimum width/height of a grab box for slider/scrollbar.
 	GrabRounding:                     f32,           // Radius of grabs corners rounding. Set to 0.0f to have rectangular slider grabs.
 	LogSliderDeadzone:                f32,           // The size in pixels of the dead-zone around zero on logarithmic sliders that cross zero.
@@ -1378,6 +1374,9 @@ Style :: struct {
 	TreeLinesFlags:                   TreeNodeFlags, // Default way to draw lines connecting TreeNode hierarchy. ImGuiTreeNodeFlags_DrawLinesNone or ImGuiTreeNodeFlags_DrawLinesFull or ImGuiTreeNodeFlags_DrawLinesToNodes.
 	TreeLinesSize:                    f32,           // Thickness of outlines when using ImGuiTreeNodeFlags_DrawLines.
 	TreeLinesRounding:                f32,           // Radius of lines connecting child nodes to the vertical line.
+	DragDropTargetRounding:           f32,           // Radius of the drag and drop target frame.
+	DragDropTargetBorderSize:         f32,           // Thickness of the drag and drop target border.
+	DragDropTargetPadding:            f32,           // Size to expand the drag and drop target from actual target item size.
 	ColorButtonPosition:              Dir,           // Side of the color button in the ColorEdit4 widget (left/right). Defaults to ImGuiDir_Right.
 	ButtonTextAlign:                  Vec2,          // Alignment of button text when button is larger than text. Defaults to (0.5f, 0.5f) (centered).
 	SelectableTextAlign:              Vec2,          // Alignment of selectable text. Defaults to (0.0f, 0.0f) (top-left aligned). It's generally important to keep this left-aligned if you want to lay multiple items on a same line.
@@ -1430,7 +1429,7 @@ IO :: struct {
 	// Font system
 	Fonts:                ^FontAtlas, // <auto>           // Font atlas: load, rasterize and pack one or more fonts into a single texture.
 	FontDefault:          ^Font,      // = NULL           // Font to use on NewFrame(). Use NULL to uses Fonts->Fonts[0].
-	FontAllowUserScaling: bool,       // = false          // [OBSOLETE] Allow user scaling text of individual window with CTRL+Wheel.
+	FontAllowUserScaling: bool,       // = false          // Allow user scaling text of individual window with Ctrl+Wheel.
 	// Keyboard/Gamepad Navigation options
 	ConfigNavSwapGamepadButtons:     bool, // = false          // Swap Activate<>Cancel (A<>B) buttons, matching typical "Nintendo/Japanese style" gamepad layout.
 	ConfigNavMoveSetMousePos:        bool, // = false          // Directional/tabbing navigation teleports the mouse cursor. May be useful on TV/console systems where moving a virtual mouse is difficult. Will update io.MousePos and set io.WantSetMousePos=true.
@@ -1441,6 +1440,7 @@ IO :: struct {
 	ConfigNavCursorVisibleAlways:    bool, // = false          // Navigation cursor is always visible.
 	// Docking options (when ImGuiConfigFlags_DockingEnable is set)
 	ConfigDockingNoSplit:            bool, // = false          // Simplified docking mode: disable window splitting, so docking is limited to merging multiple windows together into tab-bars.
+	ConfigDockingNoDockingOver:      bool, // = false          // Simplified docking mode: disable window merging into a same tab-bar, so docking is limited to splitting windows.
 	ConfigDockingWithShift:          bool, // = false          // Enable docking with holding Shift key (reduce visual noise, allows dropping in wider space)
 	ConfigDockingAlwaysTabBar:       bool, // = false          // [BETA] [FIXME: This currently creates regression with auto-sizing and general overhead] Make every single floating window display within a docking node.
 	ConfigDockingTransparentPayload: bool, // = false          // [BETA] Make window or viewport transparent when docking and only display docking boxes on the target viewport. Useful if rendering of multiple viewport cannot be synced. Best used with ConfigViewportsNoAutoMerge.
@@ -1464,7 +1464,7 @@ IO :: struct {
 	ConfigDragClickToInputText:         bool, // = false          // [BETA] Enable turning DragXXX widgets into text input with a simple mouse click-release (without moving). Not desirable on devices without a keyboard.
 	ConfigWindowsResizeFromEdges:       bool, // = true           // Enable resizing of windows from their edges and from the lower-left corner. This requires ImGuiBackendFlags_HasMouseCursors for better mouse cursor feedback. (This used to be a per-window ImGuiWindowFlags_ResizeFromAnySide flag)
 	ConfigWindowsMoveFromTitleBarOnly:  bool, // = false      // Enable allowing to move windows only when clicking on their title bar. Does not apply to windows without a title bar.
-	ConfigWindowsCopyContentsWithCtrlC: bool, // = false      // [EXPERIMENTAL] CTRL+C copy the contents of focused window into the clipboard. Experimental because: (1) has known issues with nested Begin/End pairs (2) text output quality varies (3) text output is in submission order rather than spatial order.
+	ConfigWindowsCopyContentsWithCtrlC: bool, // = false      // [EXPERIMENTAL] Ctrl+C copy the contents of focused window into the clipboard. Experimental because: (1) has known issues with nested Begin/End pairs (2) text output quality varies (3) text output is in submission order rather than spatial order.
 	ConfigScrollbarScrollByPage:        bool, // = true           // Enable scrolling page by page when clicking outside the scrollbar grab. When disabled, always scroll to clicked location. When enabled, Shift+Click scrolls to clicked location.
 	ConfigMemoryCompactTimer:           f32,  // = 60.0f          // Timer (in seconds) to free transient windows/tables memory buffers when unused. Set to -1.0f to disable.
 	// Inputs Behaviors
@@ -1541,7 +1541,7 @@ IO :: struct {
 	// (reading from those variables is fair game, as they are extremely unlikely to be moving anywhere)
 	MousePos:             Vec2,        // Mouse position, in pixels. Set to ImVec2(-FLT_MAX, -FLT_MAX) if mouse is unavailable (on another screen, etc.)
 	MouseDown:            [5]bool,     // Mouse buttons: 0=left, 1=right, 2=middle + extras (ImGuiMouseButton_COUNT == 5). Dear ImGui mostly uses left and right buttons. Other buttons allow us to track if the mouse is being used by your application + available to user as a convenience via IsMouse** API.
-	MouseWheel:           f32,         // Mouse wheel Vertical: 1 unit scrolls about 5 lines text. >0 scrolls Up, <0 scrolls Down. Hold SHIFT to turn vertical scroll into horizontal scroll.
+	MouseWheel:           f32,         // Mouse wheel Vertical: 1 unit scrolls about 5 lines text. >0 scrolls Up, <0 scrolls Down. Hold Shift to turn vertical scroll into horizontal scroll.
 	MouseWheelH:          f32,         // Mouse wheel Horizontal. >0 scrolls Left, <0 scrolls Right. Most users don't have a mouse with a horizontal wheel, may not be filled by all backends.
 	MouseSource:          MouseSource, // Mouse actual input peripheral (Mouse/TouchScreen/Pen).
 	MouseHoveredViewport: ID,          // (Optional) Modify using io.AddMouseViewportEvent(). With multi-viewports: viewport the OS mouse is hovering. If possible _IGNORING_ viewports with the ImGuiViewportFlags_NoInputs flag is much better (few backends can handle that). Set io.BackendFlags |= ImGuiBackendFlags_HasMouseHoveredViewport if you can provide this info. If you don't imgui will infer the value using the rectangles and last focused time of the viewports it knows about (ignoring other OS windows).
@@ -1564,8 +1564,8 @@ IO :: struct {
 	MouseReleasedTime:                [5]f64,                      // Time of last released (rarely used! but useful to handle delayed single-click when trying to disambiguate them from double-click).
 	MouseDownOwned:                   [5]bool,                     // Track if button was clicked inside a dear imgui window or over void blocked by a popup. We don't request mouse capture from the application if click started outside ImGui bounds.
 	MouseDownOwnedUnlessPopupClose:   [5]bool,                     // Track if button was clicked inside a dear imgui window.
-	MouseWheelRequestAxisSwap:        bool,                        // On a non-Mac system, holding SHIFT requests WheelY to perform the equivalent of a WheelX event. On a Mac system this is already enforced by the system.
-	MouseCtrlLeftAsRightClick:        bool,                        // (OSX) Set to true when the current click was a Ctrl+click that spawned a simulated right click
+	MouseWheelRequestAxisSwap:        bool,                        // On a non-Mac system, holding Shift requests WheelY to perform the equivalent of a WheelX event. On a Mac system this is already enforced by the system.
+	MouseCtrlLeftAsRightClick:        bool,                        // (OSX) Set to true when the current click was a Ctrl+Click that spawned a simulated right click
 	MouseDownDuration:                [5]f32,                      // Duration the mouse button has been down (0.0f == just clicked)
 	MouseDownDurationPrev:            [5]f32,                      // Previous time the mouse button has been down
 	MouseDragMaxDistanceAbs:          [5]Vec2,                     // Maximum distance, absolute, on each axis, of how much mouse has traveled from the clicking point
@@ -1885,7 +1885,7 @@ DrawData :: struct {
 	DisplaySize:      Vec2,                   // Size of the viewport to render (== GetMainViewport()->Size for the main viewport, == io.DisplaySize in most single-viewport applications)
 	FramebufferScale: Vec2,                   // Amount of pixels for each unit of DisplaySize. Copied from viewport->FramebufferScale (== io.DisplayFramebufferScale for main viewport). Generally (1,1) on normal display, (2,2) on OSX with Retina display.
 	OwnerViewport:    ^Viewport,              // Viewport carrying the ImDrawData instance, might be of use to the renderer (generally not).
-	Textures:         ^Vector_TextureDataPtr, // List of textures to update. Most of the times the list is shared by all ImDrawData, has only 1 texture and it doesn't need any update. This almost always points to ImGui::GetPlatformIO().Textures[]. May be overriden or set to NULL if you want to manually update textures.
+	Textures:         ^Vector_TextureDataPtr, // List of textures to update. Most of the times the list is shared by all ImDrawData, has only 1 texture and it doesn't need any update. This almost always points to ImGui::GetPlatformIO().Textures[]. May be overridden or set to NULL if you want to manually update textures.
 }
 
 // Coordinates of a rectangle within a texture.
@@ -1931,7 +1931,7 @@ FontConfig :: struct {
 	Name:                 [40]c.char, // <auto>   // Name (strictly to ease debugging, hence limited size buffer)
 	FontData:             rawptr,     //          // TTF/OTF data
 	FontDataSize:         c.int,      //          // TTF/OTF data size
-	FontDataOwnedByAtlas: bool,       // true     // TTF/OTF data ownership taken by the container ImFontAtlas (will delete memory itself).
+	FontDataOwnedByAtlas: bool,       // true     // TTF/OTF data ownership taken by the owner ImFontAtlas (will delete memory itself).
 	// Options
 	MergeMode:          bool,   // false    // Merge into previous ImFont, so you can combine multiple inputs font into one ImFont (e.g. ASCII font + icons + Japanese glyphs). You may want to use GlyphOffset.y when merge font of different heights.
 	PixelSnapH:         bool,   // false    // Align every glyph AdvanceX to pixel boundaries. Useful e.g. if you are merging a non-pixel aligned font with the default font. If enabled, you can set OversampleH/V to 1.
@@ -2025,7 +2025,7 @@ FontAtlas :: struct {
 	TexMaxWidth:       c.int,             // Maximum desired texture width. Must be a power of two. Default to 8192.
 	TexMaxHeight:      c.int,             // Maximum desired texture height. Must be a power of two. Default to 8192.
 	UserData:          rawptr,            // Store your own atlas related user-data (if e.g. you have multiple font atlas).
-	__anonymous_type1: __anonymous_type1, // Latest texture identifier == TexData->GetTexRef(). // RENAMED TexID to TexRef in 1.92.x
+	__anonymous_type1: __anonymous_type1, // Latest texture identifier == TexData->GetTexRef(). // RENAMED TexID to TexRef in 1.92.0.
 	TexData:           ^TextureData,      // Latest texture.
 	// [Internal]
 	TexList:             Vector_TextureDataPtr,        // Texture list (most often TexList.Size == 1). TexData is always == TexList.back(). DO NOT USE DIRECTLY, USE GetDrawData().Textures[]/GetPlatformIO().Textures[] instead!
@@ -2052,7 +2052,7 @@ FontAtlas :: struct {
 	TempRect: FontAtlasRect, // For old GetCustomRectByIndex() API
 }
 
-__anonymous_type1 :: struct { // Latest texture identifier == TexData->GetTexRef(). // RENAMED TexID to TexRef in 1.92.x
+__anonymous_type1 :: struct { // Latest texture identifier == TexData->GetTexRef(). // RENAMED TexID to TexRef in 1.92.0.
 	TexRef: TextureRef,
 	TexID:  TextureRef,
 }
@@ -2079,26 +2079,26 @@ FontBaked :: struct {
 	LoadNoRenderOnLayout: c.uint, // 0  //     // Enable a two-steps mode where CalcTextSize() calls will load AdvanceX *without* rendering/packing glyphs. Only advantagous if you know that the glyph is unlikely to actually be rendered, otherwise it is slower because we'd do one query on the first CalcTextSize and one query on the first Draw.
 	LastUsedFrame:        c.int,  // 4  //     // Record of that time this was bounds
 	BakedId:              ID,     // 4     //     // Unique ID for this baked storage
-	ContainerFont:        ^Font,  // 4-8   // in  // Parent font
+	OwnerFont:            ^Font,  // 4-8   // in  // Parent font
 	FontLoaderDatas:      rawptr, // 4-8   //     // Font loader opaque storage (per baked font * sources): single contiguous buffer allocated by imgui, passed to loader.
 }
 
 // Font runtime data and rendering
 // - ImFontAtlas automatically loads a default embedded font for you if you didn't load one manually.
-// - Since 1.92.X a font may be rendered as any size! Therefore a font doesn't have one specific size.
+// - Since 1.92.0 a font may be rendered as any size! Therefore a font doesn't have one specific size.
 // - Use 'font->GetFontBaked(size)' to retrieve the ImFontBaked* corresponding to a given size.
 // - If you used g.Font + g.FontSize (which is frequent from the ImGui layer), you can use g.FontBaked as a shortcut, as g.FontBaked == g.Font->GetFontBaked(g.FontSize).
 Font :: struct {
 	// [Internal] Members: Hot ~12-20 bytes
 	LastBaked:                ^FontBaked, // 4-8   // Cache last bound baked. NEVER USE DIRECTLY. Use GetFontBaked().
-	ContainerAtlas:           ^FontAtlas, // 4-8   // What we have been loaded into.
+	OwnerAtlas:               ^FontAtlas, // 4-8   // What we have been loaded into.
 	Flags:                    FontFlags,  // 4     // Font flags.
 	CurrentRasterizerDensity: f32,        // Current rasterizer density. This is a varying state of the font.
 	// [Internal] Members: Cold ~24-52 bytes
 	// Conceptually Sources[] is the list of font sources merged to create this font.
 	FontId:           ID,                   // Unique identifier for the font
 	LegacySize:       f32,                  // 4     // in  // Font size passed to AddFont(). Use for old code calling PushFont() expecting to use that size. (use ImGui::GetFontBaked() to get font baked at current bound size).
-	Sources:          Vector_FontConfigPtr, // 16    // in  // List of sources. Pointers within ContainerAtlas->Sources[]
+	Sources:          Vector_FontConfigPtr, // 16    // in  // List of sources. Pointers within OwnerAtlas->Sources[]
 	EllipsisChar:     Wchar,                // 2-4   // out // Character used for ellipsis rendering ('...').
 	FallbackChar:     Wchar,                // 2-4   // out // Character used if a glyph isn't found (U+FFFD, '?')
 	Used8kPagesMap:   [1]u8,                // 1 bytes if ImWchar=ImWchar16, 16 bytes if ImWchar==ImWchar32. Store 1-bit for each block of 4K codepoints that has one active glyph. This is mainly used to facilitate iterations across all used codepoints.
@@ -2149,7 +2149,7 @@ PlatformIO :: struct {
 	Platform_SetClipboardTextFn: proc "c" (ctx: ^Context, text: cstring),
 	Platform_ClipboardUserData:  rawptr,
 	// Optional: Open link/folder/file in OS Shell
-	// (default to use ShellExecuteW() on Windows, system() on Linux/Mac)
+	// (default to use ShellExecuteW() on Windows, system() on Linux/Mac. expected to return false on failure, but some platforms may always return true)
 	Platform_OpenInShellFn:       proc "c" (ctx: ^Context, path: cstring) -> bool,
 	Platform_OpenInShellUserData: rawptr,
 	// Optional: Notify OS Input Method Editor of the screen position of your cursor for text input position (e.g. when using Japanese/Chinese IME on Windows)
@@ -2485,13 +2485,13 @@ foreign lib {
 	@(link_name="ImGui_Combo")         Combo         :: proc(label: cstring, current_item: ^c.int, items_separated_by_zeros: cstring, popup_max_height_in_items: c.int = -1) -> bool                                                                  --- // Separate items with \0 within a string, end item-list with \0\0. e.g. "One\0Two\0Three\0"
 	@(link_name="ImGui_ComboCallback") ComboCallback :: proc(label: cstring, current_item: ^c.int, getter: proc "c" (user_data: rawptr, idx: c.int) -> cstring, user_data: rawptr, items_count: c.int, popup_max_height_in_items: c.int = -1) -> bool ---
 	// Widgets: Drag Sliders
-	// - CTRL+Click on any drag box to turn them into an input box. Manually input values aren't clamped by default and can go off-bounds. Use ImGuiSliderFlags_AlwaysClamp to always clamp.
+	// - Ctrl+Click on any drag box to turn them into an input box. Manually input values aren't clamped by default and can go off-bounds. Use ImGuiSliderFlags_AlwaysClamp to always clamp.
 	// - For all the Float2/Float3/Float4/Int2/Int3/Int4 versions of every function, note that a 'float v[X]' function argument is the same as 'float* v',
 	//   the array syntax is just a way to document the number of elements that are expected to be accessible. You can pass address of your first element out of a contiguous set, e.g. &myvector.x
 	// - Adjust format string to decorate the value with a prefix, a suffix, or adapt the editing and display precision e.g. "%.3f" -> 1.234; "%5.2f secs" -> 01.23 secs; "Biscuit: %.0f" -> Biscuit: 1; etc.
 	// - Format string may also be set to NULL or use the default format ("%f" or "%d").
 	// - Speed are per-pixel of mouse movement (v_speed=0.2f: mouse needs to move by 5 pixels to increase value by 1). For keyboard/gamepad navigation, minimum speed is Max(v_speed, minimum_step_at_given_precision).
-	// - Use v_min < v_max to clamp edits to given limits. Note that CTRL+Click manual input can override those limits if ImGuiSliderFlags_AlwaysClamp is not used.
+	// - Use v_min < v_max to clamp edits to given limits. Note that Ctrl+Click manual input can override those limits if ImGuiSliderFlags_AlwaysClamp is not used.
 	// - Use v_max = FLT_MAX / INT_MAX etc to avoid clamping to a maximum, same with v_min = -FLT_MAX / INT_MIN to avoid clamping to a minimum.
 	// - We use the same sets of flags for DragXXX() and SliderXXX() functions as the features are the same and it makes it easier to swap them.
 	// - Legacy: Pre-1.78 there are DragXXX() function signatures that take a final `float power=1.0f' argument instead of the `ImGuiSliderFlags flags=0' argument.
@@ -2509,7 +2509,7 @@ foreign lib {
 	@(link_name="ImGui_DragScalar")      DragScalar      :: proc(label: cstring, data_type: DataType, p_data: rawptr, v_speed: f32 = 1.0, p_min: rawptr = nil, p_max: rawptr = nil, format: cstring = nil, flags: SliderFlags = {}) -> bool                                  ---
 	@(link_name="ImGui_DragScalarN")     DragScalarN     :: proc(label: cstring, data_type: DataType, p_data: rawptr, components: c.int, v_speed: f32 = 1.0, p_min: rawptr = nil, p_max: rawptr = nil, format: cstring = nil, flags: SliderFlags = {}) -> bool               ---
 	// Widgets: Regular Sliders
-	// - CTRL+Click on any slider to turn them into an input box. Manually input values aren't clamped by default and can go off-bounds. Use ImGuiSliderFlags_AlwaysClamp to always clamp.
+	// - Ctrl+Click on any slider to turn them into an input box. Manually input values aren't clamped by default and can go off-bounds. Use ImGuiSliderFlags_AlwaysClamp to always clamp.
 	// - Adjust format string to decorate the value with a prefix, a suffix, or adapt the editing and display precision e.g. "%.3f" -> 1.234; "%5.2f secs" -> 01.23 secs; "Biscuit: %.0f" -> Biscuit: 1; etc.
 	// - Format string may also be set to NULL or use the default format ("%f" or "%d").
 	// - Legacy: Pre-1.78 there are SliderXXX() function signatures that take a final `float power=1.0f' argument instead of the `ImGuiSliderFlags flags=0' argument.
@@ -2529,7 +2529,7 @@ foreign lib {
 	@(link_name="ImGui_VSliderInt")    VSliderInt    :: proc(label: cstring, size: Vec2, v: ^c.int, v_min: c.int, v_max: c.int, format: cstring = "%d", flags: SliderFlags = {}) -> bool                                   ---
 	@(link_name="ImGui_VSliderScalar") VSliderScalar :: proc(label: cstring, size: Vec2, data_type: DataType, p_data: rawptr, p_min: rawptr, p_max: rawptr, format: cstring = nil, flags: SliderFlags = {}) -> bool        ---
 	// Widgets: Input with Keyboard
-	// - If you want to use InputText() with std::string or any custom dynamic string type, see misc/cpp/imgui_stdlib.h and comments in imgui_demo.cpp.
+	// - If you want to use InputText() with std::string or any custom dynamic string type, use the wrapper in misc/cpp/imgui_stdlib.h/.cpp!
 	// - Most of the ImGuiInputTextFlags flags are only useful for InputText() and not for InputFloatX, InputIntX, InputDouble etc.
 	@(link_name="ImGui_InputText")          InputText          :: proc(label: cstring, buf: cstring, buf_size: c.size_t, flags: InputTextFlags = {}, callback: InputTextCallback = nil, user_data: rawptr = nil) -> bool                                   ---
 	@(link_name="ImGui_InputTextMultiline") InputTextMultiline :: proc(label: cstring, buf: cstring, buf_size: c.size_t, size: Vec2 = {0, 0}, flags: InputTextFlags = {}, callback: InputTextCallback = nil, user_data: rawptr = nil) -> bool              ---
@@ -2557,7 +2557,7 @@ foreign lib {
 	// Widgets: Trees
 	// - TreeNode functions return true when the node is open, in which case you need to also call TreePop() when you are finished displaying the tree node contents.
 	@(link_name="ImGui_TreeNode")                  TreeNode                  :: proc(label: cstring) -> bool                                                             ---
-	@(link_name="ImGui_TreeNodeStr")               TreeNodeStr               :: proc(str_id: cstring, fmt: cstring, #c_vararg args: ..any) -> bool                       --- // helper variation to easily decorelate the id from the displayed string. Read the FAQ about why and how to use ID. to align arbitrary text at the same level as a TreeNode() you can use Bullet().
+	@(link_name="ImGui_TreeNodeStr")               TreeNodeStr               :: proc(str_id: cstring, fmt: cstring, #c_vararg args: ..any) -> bool                       --- // helper variation to easily decorrelate the id from the displayed string. Read the FAQ about why and how to use ID. to align arbitrary text at the same level as a TreeNode() you can use Bullet().
 	@(link_name="ImGui_TreeNodePtr")               TreeNodePtr               :: proc(ptr_id: rawptr, fmt: cstring, #c_vararg args: ..any) -> bool                        --- // "
 	@(link_name="ImGui_TreeNodeEx")                TreeNodeEx                :: proc(label: cstring, flags: TreeNodeFlags = {}) -> bool                                  ---
 	@(link_name="ImGui_TreeNodeExStr")             TreeNodeExStr             :: proc(str_id: cstring, flags: TreeNodeFlags, fmt: cstring, #c_vararg args: ..any) -> bool ---
@@ -2576,7 +2576,7 @@ foreign lib {
 	@(link_name="ImGui_Selectable")        Selectable        :: proc(label: cstring, selected: bool = false, flags: SelectableFlags = {}, size: Vec2 = {0, 0}) -> bool --- // "bool selected" carry the selection state (read-only). Selectable() is clicked is returns true so you can modify your selection state. size.x==0.0: use remaining width, size.x>0.0: specify width. size.y==0.0: use label height, size.y>0.0: specify height
 	@(link_name="ImGui_SelectableBoolPtr") SelectableBoolPtr :: proc(label: cstring, p_selected: ^bool, flags: SelectableFlags = {}, size: Vec2 = {0, 0}) -> bool      --- // "bool* p_selected" point to the selection state (read-write), as a convenient helper.
 	// Multi-selection system for Selectable(), Checkbox(), TreeNode() functions [BETA]
-	// - This enables standard multi-selection/range-selection idioms (CTRL+Mouse/Keyboard, SHIFT+Mouse/Keyboard, etc.) in a way that also allow a clipper to be used.
+	// - This enables standard multi-selection/range-selection idioms (Ctrl+Mouse/Keyboard, Shift+Mouse/Keyboard, etc.) in a way that also allow a clipper to be used.
 	// - ImGuiSelectionUserData is often used to store your item index within the current view (but may store something else).
 	// - Read comments near ImGuiMultiSelectIO for instructions/details and see 'Demo->Widgets->Selection State & Multi-Select' for demo.
 	// - TreeNode() is technically supported but... using this correctly is more complicated. You need some sort of linear/random access to your tree,
@@ -2690,7 +2690,7 @@ foreign lib {
 	// - 5. Call EndTable()
 	@(link_name="ImGui_BeginTable")          BeginTable          :: proc(str_id: cstring, columns: c.int, flags: TableFlags = {}, outer_size: Vec2 = {0.0, 0.0}, inner_width: f32 = 0.0) -> bool ---
 	@(link_name="ImGui_EndTable")            EndTable            :: proc()                                                                                                                       --- // only call EndTable() if BeginTable() returns true!
-	@(link_name="ImGui_TableNextRow")        TableNextRow        :: proc(row_flags: TableRowFlags = {}, min_row_height: f32 = 0.0)                                                               --- // append into the first cell of a new row.
+	@(link_name="ImGui_TableNextRow")        TableNextRow        :: proc(row_flags: TableRowFlags = {}, min_row_height: f32 = 0.0)                                                               --- // append into the first cell of a new row. 'min_row_height' include the minimum top and bottom padding aka CellPadding.y * 2.0f.
 	@(link_name="ImGui_TableNextColumn")     TableNextColumn     :: proc() -> bool                                                                                                               --- // append into the next column (or first column of next row if currently in last column). Return true when column is visible.
 	@(link_name="ImGui_TableSetColumnIndex") TableSetColumnIndex :: proc(column_n: c.int) -> bool                                                                                                --- // append into the specified column. Return true when column is visible.
 	// Tables: Headers & Columns declaration
@@ -2787,7 +2787,7 @@ foreign lib {
 	// Disabling [BETA API]
 	// - Disable all user interactions and dim items visuals (applying style.DisabledAlpha over current colors)
 	// - Those can be nested but it cannot be used to enable an already disabled section (a single BeginDisabled(true) in the stack is enough to keep everything disabled)
-	// - Tooltips windows by exception are opted out of disabling.
+	// - Tooltips windows are automatically opted out of disabling. Note that IsItemHovered() by default returns false on disabled items, unless using ImGuiHoveredFlags_AllowWhenDisabled. 
 	// - BeginDisabled(false)/EndDisabled() essentially does nothing but is provided to facilitate use of boolean expressions (as a micro-optimization: if you have tens of thousands of BeginDisabled(false)/EndDisabled() pairs, you might want to reformulate your code to avoid making those calls)
 	@(link_name="ImGui_BeginDisabled") BeginDisabled :: proc(disabled: bool = true) ---
 	@(link_name="ImGui_EndDisabled")   EndDisabled   :: proc()                      ---
@@ -2935,7 +2935,7 @@ foreign lib {
 	@(link_name="ImGui_UpdatePlatformWindows")                           UpdatePlatformWindows                            :: proc()                                                                       --- // call in main loop. will call CreateWindow/ResizeWindow/etc. platform functions for each secondary viewport, and DestroyWindow for each inactive viewport.
 	@(link_name="ImGui_RenderPlatformWindowsDefault")                    RenderPlatformWindowsDefault                     :: proc(platform_render_arg: rawptr = nil, renderer_render_arg: rawptr = nil)   --- // call in main loop. will call RenderWindow/SwapBuffers platform functions for each secondary viewport which doesn't have the ImGuiViewportFlags_Minimized flag set. May be reimplemented by user for custom rendering needs.
 	@(link_name="ImGui_DestroyPlatformWindows")                          DestroyPlatformWindows                           :: proc()                                                                       --- // call DestroyWindow platform functions for all viewports. call from backend Shutdown() if you need to close platform windows before imgui shutdown. otherwise will be called by DestroyContext().
-	@(link_name="ImGui_FindViewportByID")                                FindViewportByID                                 :: proc(id: ID) -> ^Viewport                                                    --- // this is a helper for backends.
+	@(link_name="ImGui_FindViewportByID")                                FindViewportByID                                 :: proc(viewport_id: ID) -> ^Viewport                                           --- // this is a helper for backends.
 	@(link_name="ImGui_FindViewportByPlatformHandle")                    FindViewportByPlatformHandle                     :: proc(platform_handle: rawptr) -> ^Viewport                                   --- // this is a helper for backends. the type platform_handle is decided by the backend (e.g. HWND, MyWindow*, GLFWwindow* etc.)
 	@(link_name="ImVector_Construct")                                    Vector_Construct                                 :: proc(vector: rawptr)                                                         --- // Construct a zero-size ImVector<> (of any type). This is primarily useful when calling ImFontGlyphRangesBuilder_BuildRanges()
 	@(link_name="ImVector_Destruct")                                     Vector_Destruct                                  :: proc(vector: rawptr)                                                         --- // Destruct an ImVector<> (of any type). Important: Frees the vector memory but does not call destructors on contained objects (if they have them)
@@ -2961,7 +2961,6 @@ foreign lib {
 	@(link_name="ImGuiIO_ClearEventsQueue")                  IO_ClearEventsQueue                  :: proc(self: ^IO)                                                                                           --- // Clear all incoming events.
 	@(link_name="ImGuiIO_ClearInputKeys")                    IO_ClearInputKeys                    :: proc(self: ^IO)                                                                                           --- // Clear current keyboard/gamepad state + current frame text input buffer. Equivalent to releasing all keys/buttons.
 	@(link_name="ImGuiIO_ClearInputMouse")                   IO_ClearInputMouse                   :: proc(self: ^IO)                                                                                           --- // Clear current mouse state.
-	@(link_name="ImGuiIO_ClearInputCharacters")              IO_ClearInputCharacters              :: proc(self: ^IO)                                                                                           --- // [Obsoleted in 1.89.8] Clear the current frame text input buffer. Now included within ClearInputKeys().
 	@(link_name="ImGuiInputTextCallbackData_DeleteChars")    InputTextCallbackData_DeleteChars    :: proc(self: ^InputTextCallbackData, pos: c.int, bytes_count: c.int)                                        ---
 	@(link_name="ImGuiInputTextCallbackData_InsertChars")    InputTextCallbackData_InsertChars    :: proc(self: ^InputTextCallbackData, pos: c.int, text: cstring, text_end: cstring = nil)                    ---
 	@(link_name="ImGuiInputTextCallbackData_SelectAll")      InputTextCallbackData_SelectAll      :: proc(self: ^InputTextCallbackData)                                                                        ---
@@ -3135,8 +3134,8 @@ foreign lib {
 	@(link_name="ImDrawList_PrimWriteVtx")  DrawList_PrimWriteVtx  :: proc(self: ^DrawList, pos: Vec2, uv: Vec2, col: u32)                                                                 ---
 	@(link_name="ImDrawList_PrimWriteIdx")  DrawList_PrimWriteIdx  :: proc(self: ^DrawList, idx: DrawIdx)                                                                                  ---
 	@(link_name="ImDrawList_PrimVtx")       DrawList_PrimVtx       :: proc(self: ^DrawList, pos: Vec2, uv: Vec2, col: u32)                                                                 --- // Write vertex with unique index
-	@(link_name="ImDrawList_PushTextureID") DrawList_PushTextureID :: proc(self: ^DrawList, tex_ref: TextureRef)                                                                           --- // RENAMED in 1.92.x
-	@(link_name="ImDrawList_PopTextureID")  DrawList_PopTextureID  :: proc(self: ^DrawList)                                                                                                --- // RENAMED in 1.92.x
+	@(link_name="ImDrawList_PushTextureID") DrawList_PushTextureID :: proc(self: ^DrawList, tex_ref: TextureRef)                                                                           --- // RENAMED in 1.92.0
+	@(link_name="ImDrawList_PopTextureID")  DrawList_PopTextureID  :: proc(self: ^DrawList)                                                                                                --- // RENAMED in 1.92.0
 	// [Internal helpers]
 	@(link_name="ImDrawList__SetDrawListSharedData")      DrawList__SetDrawListSharedData      :: proc(self: ^DrawList, data: ^DrawListSharedData)                                                          ---
 	@(link_name="ImDrawList__ResetForNewFrame")           DrawList__ResetForNewFrame           :: proc(self: ^DrawList)                                                                                     ---
@@ -3181,7 +3180,7 @@ foreign lib {
 	@(link_name="ImFontAtlas_AddFontFromMemoryCompressedTTF")       FontAtlas_AddFontFromMemoryCompressedTTF       :: proc(self: ^FontAtlas, compressed_font_data: rawptr, compressed_font_data_size: c.int, size_pixels: f32 = 0.0, font_cfg: ^FontConfig = nil, glyph_ranges: ^Wchar = nil) -> ^Font --- // 'compressed_font_data' still owned by caller. Compress with binary_to_compressed_c.cpp.
 	@(link_name="ImFontAtlas_AddFontFromMemoryCompressedBase85TTF") FontAtlas_AddFontFromMemoryCompressedBase85TTF :: proc(self: ^FontAtlas, compressed_font_data_base85: cstring, size_pixels: f32 = 0.0, font_cfg: ^FontConfig = nil, glyph_ranges: ^Wchar = nil) -> ^Font                           --- // 'compressed_font_data_base85' still owned by caller. Compress with binary_to_compressed_c.cpp with -base85 parameter.
 	@(link_name="ImFontAtlas_RemoveFont")                           FontAtlas_RemoveFont                           :: proc(self: ^FontAtlas, font: ^Font)                                                                                                                                              ---
-	@(link_name="ImFontAtlas_Clear")                                FontAtlas_Clear                                :: proc(self: ^FontAtlas)                                                                                                                                                           --- // Clear everything (input fonts, output glyphs/textures)
+	@(link_name="ImFontAtlas_Clear")                                FontAtlas_Clear                                :: proc(self: ^FontAtlas)                                                                                                                                                           --- // Clear everything (input fonts, output glyphs/textures).
 	@(link_name="ImFontAtlas_CompactCache")                         FontAtlas_CompactCache                         :: proc(self: ^FontAtlas)                                                                                                                                                           --- // Compact cached glyphs and texture.
 	@(link_name="ImFontAtlas_SetFontLoader")                        FontAtlas_SetFontLoader                        :: proc(self: ^FontAtlas, font_loader: ^FontLoader)                                                                                                                                 --- // Change font loader at runtime.
 	// As we are transitioning toward a new font system, we expect to obsolete those soon:
@@ -3218,7 +3217,7 @@ foreign lib {
 	@(link_name="ImFontAtlas_GetGlyphRangesVietnamese")              FontAtlas_GetGlyphRangesVietnamese              :: proc(self: ^FontAtlas) -> ^Wchar --- // Default + Vietnamese characters
 	// Register and retrieve custom rectangles
 	// - You can request arbitrary rectangles to be packed into the atlas, for your own purpose.
-	// - Since 1.92.X, packing is done immediately in the function call (previously packing was done during the Build call)
+	// - Since 1.92.0, packing is done immediately in the function call (previously packing was done during the Build call)
 	// - You can render your pixels into the texture right after calling the AddCustomRect() functions.
 	// - VERY IMPORTANT:
 	//   - Texture may be created/resized at any time when calling ImGui or ImFontAtlas functions.
@@ -3236,11 +3235,11 @@ foreign lib {
 	@(link_name="ImFontAtlas_AddCustomRect")                 FontAtlas_AddCustomRect                 :: proc(self: ^FontAtlas, width: c.int, height: c.int, out_r: ^FontAtlasRect = nil) -> FontAtlasRectId                                                 --- // Register a rectangle. Return -1 (ImFontAtlasRectId_Invalid) on error.
 	@(link_name="ImFontAtlas_RemoveCustomRect")              FontAtlas_RemoveCustomRect              :: proc(self: ^FontAtlas, id: FontAtlasRectId)                                                                                                         --- // Unregister a rectangle. Existing pixels will stay in texture until resized / garbage collected.
 	@(link_name="ImFontAtlas_GetCustomRect")                 FontAtlas_GetCustomRect                 :: proc(self: ^FontAtlas, id: FontAtlasRectId, out_r: ^FontAtlasRect) -> bool                                                                          --- // Get rectangle coordinates for current texture. Valid immediately, never store this (read above)!
-	@(link_name="ImFontAtlas_AddCustomRectRegular")          FontAtlas_AddCustomRectRegular          :: proc(self: ^FontAtlas, w: c.int, h: c.int) -> FontAtlasRectId                                                                                       --- // RENAMED in 1.92.X
-	@(link_name="ImFontAtlas_GetCustomRectByIndex")          FontAtlas_GetCustomRectByIndex          :: proc(self: ^FontAtlas, id: FontAtlasRectId) -> ^FontAtlasRect                                                                                       --- // OBSOLETED in 1.92.X
-	@(link_name="ImFontAtlas_CalcCustomRectUV")              FontAtlas_CalcCustomRectUV              :: proc(self: ^FontAtlas, r: ^FontAtlasRect, out_uv_min: ^Vec2, out_uv_max: ^Vec2)                                                                     --- // OBSOLETED in 1.92.X
-	@(link_name="ImFontAtlas_AddCustomRectFontGlyph")        FontAtlas_AddCustomRectFontGlyph        :: proc(self: ^FontAtlas, font: ^Font, codepoint: Wchar, w: c.int, h: c.int, advance_x: f32, offset: Vec2 = {0, 0}) -> FontAtlasRectId                 --- // OBSOLETED in 1.92.X: Use custom ImFontLoader in ImFontConfig
-	@(link_name="ImFontAtlas_AddCustomRectFontGlyphForSize") FontAtlas_AddCustomRectFontGlyphForSize :: proc(self: ^FontAtlas, font: ^Font, font_size: f32, codepoint: Wchar, w: c.int, h: c.int, advance_x: f32, offset: Vec2 = {0, 0}) -> FontAtlasRectId --- // ADDED AND OBSOLETED in 1.92.X
+	@(link_name="ImFontAtlas_AddCustomRectRegular")          FontAtlas_AddCustomRectRegular          :: proc(self: ^FontAtlas, w: c.int, h: c.int) -> FontAtlasRectId                                                                                       --- // RENAMED in 1.92.0
+	@(link_name="ImFontAtlas_GetCustomRectByIndex")          FontAtlas_GetCustomRectByIndex          :: proc(self: ^FontAtlas, id: FontAtlasRectId) -> ^FontAtlasRect                                                                                       --- // OBSOLETED in 1.92.0
+	@(link_name="ImFontAtlas_CalcCustomRectUV")              FontAtlas_CalcCustomRectUV              :: proc(self: ^FontAtlas, r: ^FontAtlasRect, out_uv_min: ^Vec2, out_uv_max: ^Vec2)                                                                     --- // OBSOLETED in 1.92.0
+	@(link_name="ImFontAtlas_AddCustomRectFontGlyph")        FontAtlas_AddCustomRectFontGlyph        :: proc(self: ^FontAtlas, font: ^Font, codepoint: Wchar, w: c.int, h: c.int, advance_x: f32, offset: Vec2 = {0, 0}) -> FontAtlasRectId                 --- // OBSOLETED in 1.92.0: Use custom ImFontLoader in ImFontConfig
+	@(link_name="ImFontAtlas_AddCustomRectFontGlyphForSize") FontAtlas_AddCustomRectFontGlyphForSize :: proc(self: ^FontAtlas, font: ^Font, font_size: f32, codepoint: Wchar, w: c.int, h: c.int, advance_x: f32, offset: Vec2 = {0, 0}) -> FontAtlasRectId --- // ADDED AND OBSOLETED in 1.92.0
 	@(link_name="ImFontBaked_ClearOutputData")               FontBaked_ClearOutputData               :: proc(self: ^FontBaked)                                                                                                                              ---
 	@(link_name="ImFontBaked_FindGlyph")                     FontBaked_FindGlyph                     :: proc(self: ^FontBaked, _c: Wchar) -> ^FontGlyph                                                                                                     --- // Return U+FFFD glyph if requested glyph doesn't exists.
 	@(link_name="ImFontBaked_FindGlyphNoFallback")           FontBaked_FindGlyphNoFallback           :: proc(self: ^FontBaked, _c: Wchar) -> ^FontGlyph                                                                                                     --- // Return NULL if glyph doesn't exist
@@ -3288,8 +3287,6 @@ foreign lib {
 	@(link_name="ImGui_ShowStackToolWindow") ShowStackToolWindow :: proc(p_open: ^bool = nil)                                                                                                                                                                                            ---
 	@(link_name="ImGui_ComboObsolete")       ComboObsolete       :: proc(label: cstring, current_item: ^c.int, old_callback: proc "c" (user_data: rawptr, idx: c.int, out_text: ^cstring) -> bool, user_data: rawptr, items_count: c.int, popup_max_height_in_items: c.int = -1) -> bool ---
 	@(link_name="ImGui_ListBoxObsolete")     ListBoxObsolete     :: proc(label: cstring, current_item: ^c.int, old_callback: proc "c" (user_data: rawptr, idx: c.int, out_text: ^cstring) -> bool, user_data: rawptr, items_count: c.int, height_in_items: c.int = -1) -> bool           ---
-	// OBSOLETED in 1.89.7 (from June 2023)
-	@(link_name="ImGui_SetItemAllowOverlap") SetItemAllowOverlap :: proc() --- // Use SetNextItemAllowOverlap() before item.
 }
 
 ////////////////////////////////////////////////////////////

@@ -146,6 +146,12 @@ WindowRefreshFlag :: enum c.int {
 }
 
 
+WindowBgClickFlags :: bit_set[WindowBgClickFlag; c.int]
+WindowBgClickFlag :: enum c.int {
+	Move = 0, // Click on bg/void + drag to move window. Cleared by default when using io.ConfigWindowsMoveFromTitleBarOnly.
+}
+
+
 NextWindowDataFlags :: bit_set[NextWindowDataFlag; c.int]
 NextWindowDataFlag :: enum c.int {
 	HasPos            = 0,
@@ -248,7 +254,7 @@ NavMoveFlag :: enum c.int {
 	WrapY                 = 3,  // This is not super useful but provided for completeness
 	AllowCurrentNavId     = 4,  // Allow scoring and considering the current NavId as a move target candidate. This is used when the move source is offset (e.g. pressing PageDown actually needs to send a Up move request, if we are pressing PageDown from the bottom-most item we need to stay in place)
 	AlsoScoreVisibleSet   = 5,  // Store alternate result in NavMoveResultLocalVisible that only comprise elements that are already fully visible (used by PageUp/PageDown)
-	ScrollToEdgeY         = 6,  // Force scrolling to min/max (used by Home/End) // FIXME-NAV: Aim to remove or reword, probably unnecessary
+	ScrollToEdgeY         = 6,  // Force scrolling to min/max (used by Home/End) // FIXME-NAV: Aim to remove or reword as ImGuiScrollFlags
 	Forwarded             = 7,
 	DebugNoResult         = 8,  // Dummy scoring for debug purpose, don't apply result
 	FocusApi              = 9,  // Requests from focus API can land/focus/activate items even if they are marked with _NoTabStop (see NavProcessItemForTabbingRequest() for details)
@@ -312,6 +318,7 @@ WindowDockStyleCol :: enum c.int {
 	TabDimmed,
 	TabDimmedSelected,
 	TabDimmedSelectedOverline,
+	UnsavedMarker,
 	COUNT,
 }
 
@@ -801,19 +808,20 @@ ComboPreviewData :: struct {
 
 // Stacked storage data for BeginGroup()/EndGroup()
 GroupData :: struct {
-	WindowID:                     ID,
-	BackupCursorPos:              Vec2,
-	BackupCursorMaxPos:           Vec2,
-	BackupCursorPosPrevLine:      Vec2,
-	BackupIndent:                 Vec1,
-	BackupGroupOffset:            Vec1,
-	BackupCurrLineSize:           Vec2,
-	BackupCurrLineTextBaseOffset: f32,
-	BackupActiveIdIsAlive:        ID,
-	BackupDeactivatedIdIsAlive:   bool,
-	BackupHoveredIdIsAlive:       bool,
-	BackupIsSameLine:             bool,
-	EmitItem:                     bool,
+	WindowID:                             ID,
+	BackupCursorPos:                      Vec2,
+	BackupCursorMaxPos:                   Vec2,
+	BackupCursorPosPrevLine:              Vec2,
+	BackupIndent:                         Vec1,
+	BackupGroupOffset:                    Vec1,
+	BackupCurrLineSize:                   Vec2,
+	BackupCurrLineTextBaseOffset:         f32,
+	BackupActiveIdIsAlive:                ID,
+	BackupActiveIdHasBeenEditedThisFrame: bool,
+	BackupDeactivatedIdIsAlive:           bool,
+	BackupHoveredIdIsAlive:               bool,
+	BackupIsSameLine:                     bool,
+	EmitItem:                             bool,
 }
 
 // Simple column measurement, currently used for MenuItem() only.. This is very short-sighted/throw-away code and NOT a generic helper.
@@ -1394,24 +1402,28 @@ MetricsConfig :: struct {
 
 StackLevelInfo :: struct {
 	ID_:             ID,
-	QueryFrameCount: i8,    // >= 1: Query in progress
-	QuerySuccess:    bool,  // Obtained result from DebugHookIdInfo()
+	QueryFrameCount: i8,    // >= 1: Sub-query in progress
+	QuerySuccess:    bool,  // Sub-query obtained result from DebugHookIdInfo()
 	DataType:        i8,    // ImGuiDataType
-	DescOffset:      c.int, // -1 or offset into parent's ResultPathsBuf
+	DescOffset:      c.int, // -1 or offset into parent's ResultsPathsBuf
+}
+
+DebugItemPathQuery :: struct {
+	MainID:         ID,                    // ID to query details for.
+	Active:         bool,                  // Used to disambiguate the case when ID == 0 and e.g. some code calls PushOverrideID(0).
+	Complete:       bool,                  // All sub-queries are finished (some may have failed).
+	Step:           i8,                    // -1: query stack + init Results, >= 0: filling individual stack level.
+	Results:        Vector_StackLevelInfo,
+	ResultsDescBuf: TextBuffer,
+	ResultPathBuf:  TextBuffer,
 }
 
 // State for ID Stack tool queries
 IDStackTool :: struct {
-	LastActiveFrame:           c.int,
-	StackLevel:                c.int,                 // -1: query stack and resize Results, >= 0: individual stack level
-	QueryMainId:               ID,                    // ID to query details for
-	Results:                   Vector_StackLevelInfo,
-	QueryHookActive:           bool,                  // Used to disambiguate the case where DebugHookIdInfoId == 0 which is valid.
 	OptHexEncodeNonAsciiChars: bool,
 	OptCopyToClipboardOnCtrlC: bool,
+	LastActiveFrame:           c.int,
 	CopyToClipboardLastTime:   f32,
-	ResultPathsBuf:            TextBuffer,
-	ResultTempBuf:             TextBuffer,
 }
 
 ContextHook :: struct {
@@ -1424,6 +1436,15 @@ ContextHook :: struct {
 
 Context :: struct {
 	Initialized:                        bool,
+	WithinFrameScope:                   bool,                // Set by NewFrame(), cleared by EndFrame()
+	WithinFrameScopeWithImplicitWindow: bool,                // Set by NewFrame(), cleared by EndFrame() when the implicit debug window has been pushed
+	TestEngineHookItems:                bool,                // Will call test engine hooks: ImGuiTestEngineHook_ItemAdd(), ImGuiTestEngineHook_ItemInfo(), ImGuiTestEngineHook_Log()
+	FrameCount:                         c.int,
+	FrameCountEnded:                    c.int,
+	FrameCountPlatformEnded:            c.int,
+	FrameCountRendered:                 c.int,
+	Time:                               f64,
+	ContextName:                        [16]c.char,          // Storage for a context name (to facilitate debugging multi-context setups)
 	IO:                                 IO,
 	PlatformIO:                         PlatformIO,
 	Style:                              Style,
@@ -1438,18 +1459,8 @@ Context :: struct {
 	FontRasterizerDensity:              f32,                 // Current font density. Used by all calls to GetFontBaked().
 	CurrentDpiScale:                    f32,                 // Current window/viewport DpiScale == CurrentViewport->DpiScale
 	DrawListSharedData:                 DrawListSharedData,
-	Time:                               f64,
-	FrameCount:                         c.int,
-	FrameCountEnded:                    c.int,
-	FrameCountPlatformEnded:            c.int,
-	FrameCountRendered:                 c.int,
 	WithinEndChildID:                   ID,                  // Set within EndChild()
-	WithinFrameScope:                   bool,                // Set by NewFrame(), cleared by EndFrame()
-	WithinFrameScopeWithImplicitWindow: bool,                // Set by NewFrame(), cleared by EndFrame() when the implicit debug window has been pushed
-	GcCompactAll:                       bool,                // Request full GC
-	TestEngineHookItems:                bool,                // Will call test engine hooks: ImGuiTestEngineHook_ItemAdd(), ImGuiTestEngineHook_ItemInfo(), ImGuiTestEngineHook_Log()
 	TestEngine:                         rawptr,              // Test engine user data
-	ContextName:                        [16]c.char,          // Storage for a context name (to facilitate debugging multi-context setups)
 	// Inputs
 	InputEventsQueue:           Vector_InputEvent, // Input events which will be trickled/written into IO structure.
 	InputEventsTrail:           Vector_InputEvent, // Past input events processed in NewFrame(). This is to allow domain-specific application to access e.g mouse/pen trail.
@@ -1497,11 +1508,11 @@ Context :: struct {
 	ActiveIdHasBeenEditedBefore:     bool,                // Was the value associated to the widget Edited over the course of the Active state.
 	ActiveIdHasBeenEditedThisFrame:  bool,
 	ActiveIdFromShortcut:            bool,
+	ActiveIdMouseButton:             i8,
 	ActiveIdDisabledId:              ID,                  // When clicking a disabled item we set ActiveId=window->MoveId to avoid interference with widget code. Actual item ID is stored here.
-	ActiveIdMouseButton:             c.int,
 	ActiveIdClickOffset:             Vec2,                // Clicked offset from upper-left corner, if applicable (currently only set by ButtonBehavior)
-	ActiveIdWindow:                  ^Window,
 	ActiveIdSource:                  InputSource,         // Activating source: ImGuiInputSource_Mouse OR ImGuiInputSource_Keyboard OR ImGuiInputSource_Gamepad
+	ActiveIdWindow:                  ^Window,
 	ActiveIdPreviousFrame:           ID,
 	DeactivatedItemData:             DeactivatedItemData,
 	ActiveIdValueOnActivation:       DataTypeStorage,     // Backup of initial value at the time of activation. ONLY SET BY SPECIFIC WIDGETS: DragXXX and SliderXXX.
@@ -1528,6 +1539,7 @@ Context :: struct {
 	LastItemData:        LastItemData,   // Storage for last submitted item (setup by ItemAdd)
 	NextWindowData:      NextWindowData, // Storage for SetNextWindow** functions
 	DebugShowGroupRects: bool,
+	GcCompactAll:        bool,           // Request full GC
 	// Shared stacks
 	DebugFlashStyleColorIdx: Col,                      // (Keep close to ColorStack to share cache line)
 	ColorStack:              Vector_ColorMod,          // Stack for PushStyleColor()/PopStyleColor() - inherited by Begin()
@@ -1603,13 +1615,13 @@ Context :: struct {
 	NavJustMovedToKeyMods:          KeyChord,
 	NavJustMovedToIsTabbing:        bool,     // Copy of ImGuiNavMoveFlags_IsTabbing. Maybe we should store whole flags.
 	NavJustMovedToHasSelectionData: bool,     // Copy of move result's ItemFlags & ImGuiItemFlags_HasSelectionUserData). Maybe we should just store ImGuiNavItemData.
-	// Navigation: Windowing (CTRL+TAB for list, or Menu button + keys or directional pads to move/resize)
-	ConfigNavWindowingWithGamepad: bool,        // = true. Enable CTRL+TAB by holding ImGuiKey_GamepadFaceLeft (== ImGuiKey_NavGamepadMenu). When false, the button may still be used to toggle Menu layer.
+	// Navigation: Windowing (Ctrl+Tab for list, or Menu button + keys or directional pads to move/resize)
+	ConfigNavWindowingWithGamepad: bool,        // = true. Enable Ctrl+Tab by holding ImGuiKey_GamepadFaceLeft (== ImGuiKey_NavGamepadMenu). When false, the button may still be used to toggle Menu layer.
 	ConfigNavWindowingKeyNext:     KeyChord,    // = ImGuiMod_Ctrl | ImGuiKey_Tab (or ImGuiMod_Super | ImGuiKey_Tab on OS X). For reconfiguration (see #4828)
 	ConfigNavWindowingKeyPrev:     KeyChord,    // = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Tab (or ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_Tab on OS X)
-	NavWindowingTarget:            ^Window,     // Target window when doing CTRL+Tab (or Pad Menu + FocusPrev/Next), this window is temporarily displayed top-most!
+	NavWindowingTarget:            ^Window,     // Target window when doing Ctrl+Tab (or Pad Menu + FocusPrev/Next), this window is temporarily displayed top-most!
 	NavWindowingTargetAnim:        ^Window,     // Record of last valid NavWindowingTarget until DimBgRatio and NavWindowingHighlightAlpha becomes 0.0f, so the fade-out can stay on it.
-	NavWindowingListWindow:        ^Window,     // Internal window actually listing the CTRL+Tab contents
+	NavWindowingListWindow:        ^Window,     // Internal window actually listing the Ctrl+Tab contents
 	NavWindowingTimer:             f32,
 	NavWindowingHighlightAlpha:    f32,
 	NavWindowingInputSource:       InputSource,
@@ -1618,7 +1630,7 @@ Context :: struct {
 	NavWindowingAccumDeltaPos:     Vec2,
 	NavWindowingAccumDeltaSize:    Vec2,
 	// Render
-	DimBgRatio: f32, // 0.0..1.0 animation when fading in a dimming background (for modal window and CTRL+TAB list)
+	DimBgRatio: f32, // 0.0..1.0 animation when fading in a dimming background (for modal window and Ctrl+Tab list)
 	// Drag and Drop
 	DragDropActive:                  bool,
 	DragDropWithinSource:            bool,                 // Set when within a BeginDragDropXXX/EndDragDropXXX block for a drag source.
@@ -1631,7 +1643,8 @@ Context :: struct {
 	DragDropTargetClipRect:          Rect,                 // Store ClipRect at the time of item's drawing
 	DragDropTargetId:                ID,
 	DragDropTargetFullViewport:      ID,
-	DragDropAcceptFlags:             DragDropFlags,
+	DragDropAcceptFlagsCurr:         DragDropFlags,
+	DragDropAcceptFlagsPrev:         DragDropFlags,
 	DragDropAcceptIdCurrRectSurface: f32,                  // Target item surface (we resolve overlapping targets by prioritizing the smaller surface)
 	DragDropAcceptIdCurr:            ID,                   // Target item id (set at the time of accepting the payload)
 	DragDropAcceptIdPrev:            ID,                   // Target item id from previous frame (we need to store this to allow for overlapping drag and drop targets)
@@ -1678,7 +1691,7 @@ Context :: struct {
 	InputTextDeactivatedState:        InputTextDeactivatedState,
 	InputTextPasswordFontBackupBaked: FontBaked,
 	InputTextPasswordFontBackupFlags: FontFlags,
-	TempInputId:                      ID,                        // Temporary text input when CTRL+clicking on a slider, etc.
+	TempInputId:                      ID,                        // Temporary text input when using Ctrl+Click on a slider, etc.
 	DataTypeZeroValue:                DataTypeStorage,           // 0 for all data types
 	BeginMenuDepth:                   c.int,
 	BeginComboDepth:                  c.int,
@@ -1728,6 +1741,7 @@ Context :: struct {
 	LocalizationTable: [LocKey.COUNT]cstring,
 	// Capture/Logging
 	LogEnabled:              bool,       // Currently capturing
+	LogLineFirstItem:        bool,
 	LogFlags:                LogFlags,   // Capture flags/type
 	LogWindow:               ^Window,
 	LogFile:                 FileHandle, // If != NULL log to stdout/ file
@@ -1735,7 +1749,6 @@ Context :: struct {
 	LogNextPrefix:           cstring,    // See comment in LogSetNextTextDecoration(): doesn't copy underlying data, use carefully!
 	LogNextSuffix:           cstring,
 	LogLinePosY:             f32,
-	LogLineFirstItem:        bool,
 	LogDepthRef:             c.int,
 	LogDepthToExpand:        c.int,
 	LogDepthToExpandDefault: c.int,      // Default/stored value for LogDepthMaxExpand if not specified in the LogXXX function call.
@@ -1749,26 +1762,27 @@ Context :: struct {
 	StackSizesInBeginForCurrentWindow: ^ErrorRecoveryState, // [Internal]
 	// Debug Tools
 	// (some of the highly frequently used data are interleaved in other structures above: DebugBreakXXX fields, DebugHookIdInfo, DebugLocateId etc.)
-	DebugDrawIdConflictsCount:      c.int,          // Locked count (preserved when holding CTRL)
+	DebugDrawIdConflictsCount:      c.int,              // Locked count (preserved when holding Ctrl)
 	DebugLogFlags_:                 DebugLogFlags,
 	DebugLogBuf:                    TextBuffer,
 	DebugLogIndex:                  TextIndex,
 	DebugLogSkippedErrors:          c.int,
 	DebugLogAutoDisableFlags:       DebugLogFlags,
 	DebugLogAutoDisableFrames:      u8,
-	DebugLocateFrames:              u8,             // For DebugLocateItemOnHover(). This is used together with DebugLocateId which is in a hot/cached spot above.
-	DebugBreakInLocateId:           bool,           // Debug break in ItemAdd() call for g.DebugLocateId.
-	DebugBreakKeyChord:             KeyChord,       // = ImGuiKey_Pause
-	DebugBeginReturnValueCullDepth: i8,             // Cycle between 0..9 then wrap around.
-	DebugItemPickerActive:          bool,           // Item picker is active (started with DebugStartItemPicker())
+	DebugLocateFrames:              u8,                 // For DebugLocateItemOnHover(). This is used together with DebugLocateId which is in a hot/cached spot above.
+	DebugBreakInLocateId:           bool,               // Debug break in ItemAdd() call for g.DebugLocateId.
+	DebugBreakKeyChord:             KeyChord,           // = ImGuiKey_Pause
+	DebugBeginReturnValueCullDepth: i8,                 // Cycle between 0..9 then wrap around.
+	DebugItemPickerActive:          bool,               // Item picker is active (started with DebugStartItemPicker())
 	DebugItemPickerMouseButton:     u8,
-	DebugItemPickerBreakId:         ID,             // Will call IM_DEBUG_BREAK() when encountering this ID
+	DebugItemPickerBreakId:         ID,                 // Will call IM_DEBUG_BREAK() when encountering this ID
 	DebugFlashStyleColorTime:       f32,
 	DebugFlashStyleColorBackup:     Vec4,
 	DebugMetricsConfig:             MetricsConfig,
+	DebugItemPathQuery:             DebugItemPathQuery,
 	DebugIDStackTool:               IDStackTool,
 	DebugAllocInfo:                 DebugAllocInfo,
-	DebugHoveredDockNode:           ^DockNode,      // Hovered dock node.
+	DebugHoveredDockNode:           ^DockNode,          // Hovered dock node.
 	// Misc
 	FramerateSecPerFrame:         [60]f32,     // Calculate estimate of framerate for user over the last 60 frames..
 	FramerateSecPerFrameIdx:      c.int,
@@ -1837,85 +1851,86 @@ WindowTempData :: struct {
 
 // Storage for one window
 Window :: struct {
-	Ctx:                                ^Context,       // Parent UI context (needs to be set explicitly by parent).
-	Name:                               cstring,        // Window name, owned by the window.
-	ID_:                                ID,             // == ImHashStr(Name)
-	Flags:                              WindowFlags,    // See enum ImGuiWindowFlags_
-	FlagsPreviousFrame:                 WindowFlags,    // See enum ImGuiWindowFlags_
-	ChildFlags:                         ChildFlags,     // Set when window is a child window. See enum ImGuiChildFlags_
-	WindowClass:                        WindowClass,    // Advanced users only. Set with SetNextWindowClass()
-	Viewport:                           ^ViewportP,     // Always set in Begin(). Inactive windows may have a NULL value here if their viewport was discarded.
-	ViewportId:                         ID,             // We backup the viewport id (since the viewport may disappear or never be created if the window is inactive)
-	ViewportPos:                        Vec2,           // We backup the viewport position (since the viewport may disappear or never be created if the window is inactive)
-	ViewportAllowPlatformMonitorExtend: c.int,          // Reset to -1 every frame (index is guaranteed to be valid between NewFrame..EndFrame), only used in the Appearing frame of a tooltip/popup to enforce clamping to a given monitor
-	Pos:                                Vec2,           // Position (always rounded-up to nearest pixel)
-	Size:                               Vec2,           // Current size (==SizeFull or collapsed title bar size)
-	SizeFull:                           Vec2,           // Size when non collapsed
-	ContentSize:                        Vec2,           // Size of contents/scrollable client area (calculated from the extents reach of the cursor) from previous frame. Does not include window decoration or window padding.
+	Ctx:                                ^Context,           // Parent UI context (needs to be set explicitly by parent).
+	Name:                               cstring,            // Window name, owned by the window.
+	ID_:                                ID,                 // == ImHashStr(Name)
+	Flags:                              WindowFlags,        // See enum ImGuiWindowFlags_
+	FlagsPreviousFrame:                 WindowFlags,        // See enum ImGuiWindowFlags_
+	ChildFlags:                         ChildFlags,         // Set when window is a child window. See enum ImGuiChildFlags_
+	WindowClass:                        WindowClass,        // Advanced users only. Set with SetNextWindowClass()
+	Viewport:                           ^ViewportP,         // Always set in Begin(). Inactive windows may have a NULL value here if their viewport was discarded.
+	ViewportId:                         ID,                 // We backup the viewport id (since the viewport may disappear or never be created if the window is inactive)
+	ViewportPos:                        Vec2,               // We backup the viewport position (since the viewport may disappear or never be created if the window is inactive)
+	ViewportAllowPlatformMonitorExtend: c.int,              // Reset to -1 every frame (index is guaranteed to be valid between NewFrame..EndFrame), only used in the Appearing frame of a tooltip/popup to enforce clamping to a given monitor
+	Pos:                                Vec2,               // Position (always rounded-up to nearest pixel)
+	Size:                               Vec2,               // Current size (==SizeFull or collapsed title bar size)
+	SizeFull:                           Vec2,               // Size when non collapsed
+	ContentSize:                        Vec2,               // Size of contents/scrollable client area (calculated from the extents reach of the cursor) from previous frame. Does not include window decoration or window padding.
 	ContentSizeIdeal:                   Vec2,
-	ContentSizeExplicit:                Vec2,           // Size of contents/scrollable client area explicitly request by the user via SetNextWindowContentSize().
-	WindowPadding:                      Vec2,           // Window padding at the time of Begin().
-	WindowRounding:                     f32,            // Window rounding at the time of Begin(). May be clamped lower to avoid rendering artifacts with title bar, menu bar etc.
-	WindowBorderSize:                   f32,            // Window border size at the time of Begin().
-	TitleBarHeight:                     f32,            // Note that those used to be function before 2024/05/28. If you have old code calling TitleBarHeight() you can change it to TitleBarHeight.
-	MenuBarHeight:                      f32,            // Note that those used to be function before 2024/05/28. If you have old code calling TitleBarHeight() you can change it to TitleBarHeight.
-	DecoOuterSizeX1:                    f32,            // Left/Up offsets. Sum of non-scrolling outer decorations (X1 generally == 0.0f. Y1 generally = TitleBarHeight + MenuBarHeight). Locked during Begin().
-	DecoOuterSizeY1:                    f32,            // Left/Up offsets. Sum of non-scrolling outer decorations (X1 generally == 0.0f. Y1 generally = TitleBarHeight + MenuBarHeight). Locked during Begin().
-	DecoOuterSizeX2:                    f32,            // Right/Down offsets (X2 generally == ScrollbarSize.x, Y2 == ScrollbarSizes.y).
-	DecoOuterSizeY2:                    f32,            // Right/Down offsets (X2 generally == ScrollbarSize.x, Y2 == ScrollbarSizes.y).
-	DecoInnerSizeX1:                    f32,            // Applied AFTER/OVER InnerRect. Specialized for Tables as they use specialized form of clipping and frozen rows/columns are inside InnerRect (and not part of regular decoration sizes).
-	DecoInnerSizeY1:                    f32,            // Applied AFTER/OVER InnerRect. Specialized for Tables as they use specialized form of clipping and frozen rows/columns are inside InnerRect (and not part of regular decoration sizes).
-	NameBufLen:                         c.int,          // Size of buffer storing Name. May be larger than strlen(Name)!
-	MoveId:                             ID,             // == window->GetID("#MOVE")
-	TabId:                              ID,             // == window->GetID("#TAB")
-	ChildId:                            ID,             // ID of corresponding item in parent window (for navigation to return from child window to parent window)
-	PopupId:                            ID,             // ID in the popup stack when this window is used as a popup/menu (because we use generic Name/ID for recycling)
+	ContentSizeExplicit:                Vec2,               // Size of contents/scrollable client area explicitly request by the user via SetNextWindowContentSize().
+	WindowPadding:                      Vec2,               // Window padding at the time of Begin().
+	WindowRounding:                     f32,                // Window rounding at the time of Begin(). May be clamped lower to avoid rendering artifacts with title bar, menu bar etc.
+	WindowBorderSize:                   f32,                // Window border size at the time of Begin().
+	TitleBarHeight:                     f32,                // Note that those used to be function before 2024/05/28. If you have old code calling TitleBarHeight() you can change it to TitleBarHeight.
+	MenuBarHeight:                      f32,                // Note that those used to be function before 2024/05/28. If you have old code calling TitleBarHeight() you can change it to TitleBarHeight.
+	DecoOuterSizeX1:                    f32,                // Left/Up offsets. Sum of non-scrolling outer decorations (X1 generally == 0.0f. Y1 generally = TitleBarHeight + MenuBarHeight). Locked during Begin().
+	DecoOuterSizeY1:                    f32,                // Left/Up offsets. Sum of non-scrolling outer decorations (X1 generally == 0.0f. Y1 generally = TitleBarHeight + MenuBarHeight). Locked during Begin().
+	DecoOuterSizeX2:                    f32,                // Right/Down offsets (X2 generally == ScrollbarSize.x, Y2 == ScrollbarSizes.y).
+	DecoOuterSizeY2:                    f32,                // Right/Down offsets (X2 generally == ScrollbarSize.x, Y2 == ScrollbarSizes.y).
+	DecoInnerSizeX1:                    f32,                // Applied AFTER/OVER InnerRect. Specialized for Tables as they use specialized form of clipping and frozen rows/columns are inside InnerRect (and not part of regular decoration sizes).
+	DecoInnerSizeY1:                    f32,                // Applied AFTER/OVER InnerRect. Specialized for Tables as they use specialized form of clipping and frozen rows/columns are inside InnerRect (and not part of regular decoration sizes).
+	NameBufLen:                         c.int,              // Size of buffer storing Name. May be larger than strlen(Name)!
+	MoveId:                             ID,                 // == window->GetID("#MOVE")
+	TabId:                              ID,                 // == window->GetID("#TAB")
+	ChildId:                            ID,                 // ID of corresponding item in parent window (for navigation to return from child window to parent window)
+	PopupId:                            ID,                 // ID in the popup stack when this window is used as a popup/menu (because we use generic Name/ID for recycling)
 	Scroll:                             Vec2,
 	ScrollMax:                          Vec2,
-	ScrollTarget:                       Vec2,           // target scroll position. stored as cursor position with scrolling canceled out, so the highest point is always 0.0f. (FLT_MAX for no change)
-	ScrollTargetCenterRatio:            Vec2,           // 0.0f = scroll so that target position is at top, 0.5f = scroll so that target position is centered
-	ScrollTargetEdgeSnapDist:           Vec2,           // 0.0f = no snapping, >0.0f snapping threshold
-	ScrollbarSizes:                     Vec2,           // Size taken by each scrollbars on their smaller axis. Pay attention! ScrollbarSizes.x == width of the vertical scrollbar, ScrollbarSizes.y = height of the horizontal scrollbar.
-	ScrollbarX:                         bool,           // Are scrollbars visible?
-	ScrollbarY:                         bool,           // Are scrollbars visible?
-	ScrollbarXStabilizeEnabled:         bool,           // Was ScrollbarX previously auto-stabilized?
-	ScrollbarXStabilizeToggledHistory:  u8,             // Used to stabilize scrollbar visibility in case of feedback loops
+	ScrollTarget:                       Vec2,               // target scroll position. stored as cursor position with scrolling canceled out, so the highest point is always 0.0f. (FLT_MAX for no change)
+	ScrollTargetCenterRatio:            Vec2,               // 0.0f = scroll so that target position is at top, 0.5f = scroll so that target position is centered
+	ScrollTargetEdgeSnapDist:           Vec2,               // 0.0f = no snapping, >0.0f snapping threshold
+	ScrollbarSizes:                     Vec2,               // Size taken by each scrollbars on their smaller axis. Pay attention! ScrollbarSizes.x == width of the vertical scrollbar, ScrollbarSizes.y = height of the horizontal scrollbar.
+	ScrollbarX:                         bool,               // Are scrollbars visible?
+	ScrollbarY:                         bool,               // Are scrollbars visible?
+	ScrollbarXStabilizeEnabled:         bool,               // Was ScrollbarX previously auto-stabilized?
+	ScrollbarXStabilizeToggledHistory:  u8,                 // Used to stabilize scrollbar visibility in case of feedback loops
 	ViewportOwned:                      bool,
-	Active:                             bool,           // Set to true on Begin(), unless Collapsed
+	Active:                             bool,               // Set to true on Begin(), unless Collapsed
 	WasActive:                          bool,
-	WriteAccessed:                      bool,           // Set to true when any widget access the current window
-	Collapsed:                          bool,           // Set when collapsing window to become only title-bar
+	WriteAccessed:                      bool,               // Set to true when any widget access the current window
+	Collapsed:                          bool,               // Set when collapsing window to become only title-bar
 	WantCollapseToggle:                 bool,
-	SkipItems:                          bool,           // Set when items can safely be all clipped (e.g. window not visible or collapsed)
-	SkipRefresh:                        bool,           // [EXPERIMENTAL] Reuse previous frame drawn contents, Begin() returns false.
-	Appearing:                          bool,           // Set during the frame where the window is appearing (or re-appearing)
-	Hidden:                             bool,           // Do not display (== HiddenFrames*** > 0)
-	IsFallbackWindow:                   bool,           // Set on the "Debug##Default" window.
-	IsExplicitChild:                    bool,           // Set when passed _ChildWindow, left to false by BeginDocked()
-	HasCloseButton:                     bool,           // Set when the window has a close button (p_open != NULL)
-	ResizeBorderHovered:                c.char,         // Current border being hovered for resize (-1: none, otherwise 0-3)
-	ResizeBorderHeld:                   c.char,         // Current border being held for resize (-1: none, otherwise 0-3)
-	BeginCount:                         c.short,        // Number of Begin() during the current frame (generally 0 or 1, 1+ if appending via multiple Begin/End pairs)
-	BeginCountPreviousFrame:            c.short,        // Number of Begin() during the previous frame
-	BeginOrderWithinParent:             c.short,        // Begin() order within immediate parent window, if we are a child window. Otherwise 0.
-	BeginOrderWithinContext:            c.short,        // Begin() order within entire imgui context. This is mostly used for debugging submission order related issues.
-	FocusOrder:                         c.short,        // Order within WindowsFocusOrder[], altered when windows are focused.
+	SkipItems:                          bool,               // Set when items can safely be all clipped (e.g. window not visible or collapsed)
+	SkipRefresh:                        bool,               // [EXPERIMENTAL] Reuse previous frame drawn contents, Begin() returns false.
+	Appearing:                          bool,               // Set during the frame where the window is appearing (or re-appearing)
+	Hidden:                             bool,               // Do not display (== HiddenFrames*** > 0)
+	IsFallbackWindow:                   bool,               // Set on the "Debug##Default" window.
+	IsExplicitChild:                    bool,               // Set when passed _ChildWindow, left to false by BeginDocked()
+	HasCloseButton:                     bool,               // Set when the window has a close button (p_open != NULL)
+	ResizeBorderHovered:                c.char,             // Current border being hovered for resize (-1: none, otherwise 0-3)
+	ResizeBorderHeld:                   c.char,             // Current border being held for resize (-1: none, otherwise 0-3)
+	BeginCount:                         c.short,            // Number of Begin() during the current frame (generally 0 or 1, 1+ if appending via multiple Begin/End pairs)
+	BeginCountPreviousFrame:            c.short,            // Number of Begin() during the previous frame
+	BeginOrderWithinParent:             c.short,            // Begin() order within immediate parent window, if we are a child window. Otherwise 0.
+	BeginOrderWithinContext:            c.short,            // Begin() order within entire imgui context. This is mostly used for debugging submission order related issues.
+	FocusOrder:                         c.short,            // Order within WindowsFocusOrder[], altered when windows are focused.
+	AutoPosLastDirection:               Dir,
 	AutoFitFramesX:                     i8,
 	AutoFitFramesY:                     i8,
 	AutoFitOnlyGrows:                   bool,
-	AutoPosLastDirection:               Dir,
-	HiddenFramesCanSkipItems:           i8,             // Hide the window for N frames
-	HiddenFramesCannotSkipItems:        i8,             // Hide the window for N frames while allowing items to be submitted so we can measure their size
-	HiddenFramesForRenderOnly:          i8,             // Hide the window until frame N at Render() time only
-	DisableInputsFrames:                i8,             // Disable window interactions for N frames
-	SetWindowPosAllowFlags:             Cond,           // store acceptable condition flags for SetNextWindowPos() use.
-	SetWindowSizeAllowFlags:            Cond,           // store acceptable condition flags for SetNextWindowSize() use.
-	SetWindowCollapsedAllowFlags:       Cond,           // store acceptable condition flags for SetNextWindowCollapsed() use.
-	SetWindowDockAllowFlags:            Cond,           // store acceptable condition flags for SetNextWindowDock() use.
-	SetWindowPosVal:                    Vec2,           // store window position when using a non-zero Pivot (position set needs to be processed when we know the window size)
-	SetWindowPosPivot:                  Vec2,           // store window pivot for positioning. ImVec2(0, 0) when positioning from top-left corner; ImVec2(0.5f, 0.5f) for centering; ImVec2(1, 1) for bottom right.
-	IDStack:                            Vector_ID,      // ID stack. ID are hashes seeded with the value at the top of the stack. (In theory this should be in the TempData structure)
-	DC:                                 WindowTempData, // Temporary per-window data, reset at the beginning of the frame. This used to be called ImGuiDrawContext, hence the "DC" variable name.
+	HiddenFramesCanSkipItems:           i8,                 // Hide the window for N frames
+	HiddenFramesCannotSkipItems:        i8,                 // Hide the window for N frames while allowing items to be submitted so we can measure their size
+	HiddenFramesForRenderOnly:          i8,                 // Hide the window until frame N at Render() time only
+	DisableInputsFrames:                i8,                 // Disable window interactions for N frames
+	BgClickFlags:                       WindowBgClickFlags, // Configure behavior of click+dragging on window bg/void or over items. Default sets by io.ConfigWindowsMoveFromTitleBarOnly. If you use this please report in #3379.
+	SetWindowPosAllowFlags:             Cond,               // store acceptable condition flags for SetNextWindowPos() use.
+	SetWindowSizeAllowFlags:            Cond,               // store acceptable condition flags for SetNextWindowSize() use.
+	SetWindowCollapsedAllowFlags:       Cond,               // store acceptable condition flags for SetNextWindowCollapsed() use.
+	SetWindowDockAllowFlags:            Cond,               // store acceptable condition flags for SetNextWindowDock() use.
+	SetWindowPosVal:                    Vec2,               // store window position when using a non-zero Pivot (position set needs to be processed when we know the window size)
+	SetWindowPosPivot:                  Vec2,               // store window pivot for positioning. ImVec2(0, 0) when positioning from top-left corner; ImVec2(0.5f, 0.5f) for centering; ImVec2(1, 1) for bottom right.
+	IDStack:                            Vector_ID,          // ID stack. ID are hashes seeded with the value at the top of the stack. (In theory this should be in the TempData structure)
+	DC:                                 WindowTempData,     // Temporary per-window data, reset at the beginning of the frame. This used to be called ImGuiDrawContext, hence the "DC" variable name.
 	// The best way to understand what those rectangles are is to use the 'Metrics->Tools->Show Windows Rectangles' viewer.
 	// The main 'OuterRect', omitted as a field, is window->Rect().
 	OuterRectClipped:               Rect,                 // == Window->Rect() just after setup in Begin(). == window->Rect() for root window.
@@ -1946,7 +1961,7 @@ Window :: struct {
 	RootWindowDockTree:             ^Window,              // Point to ourself or first ancestor that is not a child window. Cross through dock nodes.
 	RootWindowForTitleBarHighlight: ^Window,              // Point to ourself or first ancestor which will display TitleBgActive color when this window is active.
 	RootWindowForNav:               ^Window,              // Point to ourself or first ancestor which doesn't have the NavFlattened flag.
-	ParentWindowForFocusRoute:      ^Window,              // Set to manual link a window to its logical parent so that Shortcut() chain are honoerd (e.g. Tool linked to Document)
+	ParentWindowForFocusRoute:      ^Window,              // Set to manual link a window to its logical parent so that Shortcut() chain are honored (e.g. Tool linked to Document)
 	NavLastChildNavWindow:          ^Window,              // When going to the menu bar, we remember the child window we came from. (This could probably be made implicit if we kept g.Windows sorted by last focused including child window.)
 	NavLastIds:                     [NavLayer.COUNT]ID,   // Last known NavId for this window, per layer (0/1)
 	NavRectRel:                     [NavLayer.COUNT]Rect, // Reference rectangle, in window relative space
@@ -1992,7 +2007,7 @@ TabBar :: struct {
 	ID_:                             ID,             // Zero for tab-bars used by docking
 	SelectedTabId:                   ID,             // Selected tab/window
 	NextSelectedTabId:               ID,             // Next selected tab/window. Will also trigger a scrolling animation
-	VisibleTabId:                    ID,             // Can occasionally be != SelectedTabId (e.g. when previewing contents for CTRL+TAB preview)
+	VisibleTabId:                    ID,             // Can occasionally be != SelectedTabId (e.g. when previewing contents for Ctrl+Tab preview)
 	CurrFrameVisible:                c.int,
 	PrevFrameVisible:                c.int,
 	BarRect:                         Rect,
@@ -2204,7 +2219,7 @@ Table :: struct {
 	IsContextPopupOpen:         bool,                        // Set when default context menu is open (also see: ContextPopupColumn, InstanceInteracted).
 	DisableDefaultContextMenu:  bool,                        // Disable default context menu. You may submit your own using TableBeginContextMenuPopup()/EndPopup()
 	IsSettingsRequestLoad:      bool,
-	IsSettingsDirty:            bool,                        // Set when table settings have changed and needs to be reported into ImGuiTableSetttings data.
+	IsSettingsDirty:            bool,                        // Set when table settings have changed and needs to be reported into ImGuiTableSettings data.
 	IsDefaultDisplayOrder:      bool,                        // Set when display order is unchanged from default (DisplayOrder contains 0...Count-1)
 	IsResetAllRequest:          bool,
 	IsResetDisplayOrderRequest: bool,
@@ -2224,6 +2239,7 @@ Table :: struct {
 // FIXME-TABLE: more transient data could be stored in a stacked ImGuiTableTempData: e.g. SortSpecs.
 // sizeof() ~ 136 bytes.
 TableTempData :: struct {
+	WindowID:                     ID,                     // Shortcut to g.Tables[TableIndex]->OuterWindow->ID.
 	TableIndex:                   c.int,                  // Index in g.Tables.Buf[] pool
 	LastTimeActive:               f32,                    // Last timestamp this structure was used
 	AngledHeadersExtraWidth:      f32,                    // Used in EndTable()
@@ -2402,7 +2418,8 @@ foreign lib {
 	@(link_name="cImTextCountCharsFromUtf8")        cImTextCountCharsFromUtf8        :: proc(in_text: cstring, in_text_end: cstring) -> c.int                                                                                                                                                      --- // return number of UTF-8 code-points (NOT bytes count)
 	@(link_name="cImTextCountUtf8BytesFromChar")    cImTextCountUtf8BytesFromChar    :: proc(in_text: cstring, in_text_end: cstring) -> c.int                                                                                                                                                      --- // return number of bytes to express one char in UTF-8
 	@(link_name="cImTextCountUtf8BytesFromStr")     cImTextCountUtf8BytesFromStr     :: proc(in_text: ^Wchar, in_text_end: ^Wchar) -> c.int                                                                                                                                                        --- // return number of bytes to express string in UTF-8
-	@(link_name="cImTextFindPreviousUtf8Codepoint") cImTextFindPreviousUtf8Codepoint :: proc(in_text_start: cstring, in_text_curr: cstring) -> cstring                                                                                                                                             --- // return previous UTF-8 code-point.
+	@(link_name="cImTextFindPreviousUtf8Codepoint") cImTextFindPreviousUtf8Codepoint :: proc(in_text_start: cstring, in_p: cstring) -> cstring                                                                                                                                                     --- // return previous UTF-8 code-point.
+	@(link_name="cImTextFindValidUtf8CodepointEnd") cImTextFindValidUtf8CodepointEnd :: proc(in_text_start: cstring, in_text_end: cstring, in_p: cstring) -> cstring                                                                                                                               --- // return previous UTF-8 code-point if 'in_p' is not the end of a valid one.
 	@(link_name="cImTextCountLines")                cImTextCountLines                :: proc(in_text: cstring, in_text_end: cstring) -> c.int                                                                                                                                                      --- // return number of lines taken by text. trailing carriage return doesn't count as an extra line.
 	@(link_name="cImFontCalcTextSizeEx")            cImFontCalcTextSizeEx            :: proc(font: ^Font, size: f32, max_width: f32, wrap_width: f32, text_begin: cstring, text_end_display: cstring, text_end: cstring, out_remaining: ^cstring, out_offset: ^Vec2, flags: DrawTextFlags) -> Vec2 ---
 	@(link_name="cImFontCalcWordWrapPositionEx")    cImFontCalcWordWrapPositionEx    :: proc(font: ^Font, size: f32, text: cstring, text_end: cstring, wrap_width: f32, flags: DrawTextFlags = {}) -> cstring                                                                                      ---
@@ -2591,6 +2608,7 @@ foreign lib {
 	@(link_name="ImGui_UpdateWindowSkipRefresh")                    UpdateWindowSkipRefresh                    :: proc(window: ^Window)                                                                                 ---
 	@(link_name="ImGui_CalcWindowNextAutoFitSize")                  CalcWindowNextAutoFitSize                  :: proc(window: ^Window) -> Vec2                                                                         ---
 	@(link_name="ImGui_IsWindowChildOf")                            IsWindowChildOf                            :: proc(window: ^Window, potential_parent: ^Window, popup_hierarchy: bool, dock_hierarchy: bool) -> bool ---
+	@(link_name="ImGui_IsWindowInBeginStack")                       IsWindowInBeginStack                       :: proc(window: ^Window) -> bool                                                                         ---
 	@(link_name="ImGui_IsWindowWithinBeginStackOf")                 IsWindowWithinBeginStackOf                 :: proc(window: ^Window, potential_parent: ^Window) -> bool                                              ---
 	@(link_name="ImGui_IsWindowAbove")                              IsWindowAbove                              :: proc(potential_above: ^Window, potential_below: ^Window) -> bool                                      ---
 	@(link_name="ImGui_IsWindowNavFocusable")                       IsWindowNavFocusable                       :: proc(window: ^Window) -> bool                                                                         ---
@@ -2633,6 +2651,11 @@ foreign lib {
 	// Init
 	@(link_name="ImGui_Initialize") Initialize :: proc() ---
 	@(link_name="ImGui_Shutdown")   Shutdown   :: proc() --- // Since 1.60 this is a _private_ function. You can call DestroyContext() to destroy the context created by CreateContext().
+	// Context name & generic context hooks
+	@(link_name="ImGui_SetContextName")    SetContextName    :: proc(ctx: ^Context, name: cstring)            ---
+	@(link_name="ImGui_AddContextHook")    AddContextHook    :: proc(ctx: ^Context, hook: ^ContextHook) -> ID ---
+	@(link_name="ImGui_RemoveContextHook") RemoveContextHook :: proc(ctx: ^Context, hook_to_remove: ID)       ---
+	@(link_name="ImGui_CallContextHooks")  CallContextHooks  :: proc(ctx: ^Context, type: ContextHookType)    ---
 	// NewFrame
 	@(link_name="ImGui_UpdateInputEvents")                  UpdateInputEvents                  :: proc(trickle_fast_inputs: bool)                                                                                                       ---
 	@(link_name="ImGui_UpdateHoveredWindowAndCaptureFlags") UpdateHoveredWindowAndCaptureFlags :: proc(mouse_pos: Vec2)                                                                                                                 ---
@@ -2642,10 +2665,6 @@ foreign lib {
 	@(link_name="ImGui_StopMouseMovingWindow")              StopMouseMovingWindow              :: proc()                                                                                                                                ---
 	@(link_name="ImGui_UpdateMouseMovingWindowNewFrame")    UpdateMouseMovingWindowNewFrame    :: proc()                                                                                                                                ---
 	@(link_name="ImGui_UpdateMouseMovingWindowEndFrame")    UpdateMouseMovingWindowEndFrame    :: proc()                                                                                                                                ---
-	// Generic context hooks
-	@(link_name="ImGui_AddContextHook")    AddContextHook    :: proc(_context: ^Context, hook: ^ContextHook) -> ID ---
-	@(link_name="ImGui_RemoveContextHook") RemoveContextHook :: proc(_context: ^Context, hook_to_remove: ID)       ---
-	@(link_name="ImGui_CallContextHooks")  CallContextHooks  :: proc(_context: ^Context, type: ContextHookType)    ---
 	// Viewports
 	@(link_name="ImGui_TranslateWindowsInViewport")                 TranslateWindowsInViewport                 :: proc(viewport: ^ViewportP, old_pos: Vec2, new_pos: Vec2, old_size: Vec2, new_size: Vec2) ---
 	@(link_name="ImGui_ScaleWindowsInViewport")                     ScaleWindowsInViewport                     :: proc(viewport: ^ViewportP, scale: f32)                                                   ---
@@ -2815,7 +2834,7 @@ foreign lib {
 	//   Legacy functions use ImGuiKeyOwner_Any meaning that they typically ignore ownership, unless a call to SetKeyOwner() explicitly used ImGuiInputFlags_LockThisFrame or ImGuiInputFlags_LockUntilRelease.
 	// - Binding generators may want to ignore those for now, or suffix them with Ex() until we decide if this gets moved into public API.
 	@(link_name="ImGui_IsKeyDownID")                      IsKeyDownID                      :: proc(key: Key, owner_id: ID) -> bool                                    ---
-	@(link_name="ImGui_IsKeyPressedImGuiInputFlags")      IsKeyPressedImGuiInputFlags      :: proc(key: Key, flags: InputFlags, owner_id: ID = {}) -> bool            --- // Important: when transitioning from old to new IsKeyPressed(): old API has "bool repeat = true", so would default to repeat. New API requiress explicit ImGuiInputFlags_Repeat.
+	@(link_name="ImGui_IsKeyPressedImGuiInputFlags")      IsKeyPressedImGuiInputFlags      :: proc(key: Key, flags: InputFlags, owner_id: ID = {}) -> bool            --- // Important: when transitioning from old to new IsKeyPressed(): old API has "bool repeat = true", so would default to repeat. New API requires explicit ImGuiInputFlags_Repeat.
 	@(link_name="ImGui_IsKeyReleasedID")                  IsKeyReleasedID                  :: proc(key: Key, owner_id: ID) -> bool                                    ---
 	@(link_name="ImGui_IsKeyChordPressedImGuiInputFlags") IsKeyChordPressedImGuiInputFlags :: proc(key_chord: KeyChord, flags: InputFlags, owner_id: ID = {}) -> bool ---
 	@(link_name="ImGui_IsMouseDownID")                    IsMouseDownID                    :: proc(button: MouseButton, owner_id: ID) -> bool                         ---
@@ -3129,6 +3148,7 @@ foreign lib {
 	@(link_name="ImGui_DebugBreakButton")                       DebugBreakButton                             :: proc(label: cstring, description_of_location: cstring) -> bool                                                                                                   ---
 	@(link_name="ImGui_DebugBreakButtonTooltip")                DebugBreakButtonTooltip                      :: proc(keyboard_only: bool, description_of_location: cstring)                                                                                                      ---
 	@(link_name="ImGui_ShowFontAtlas")                          ShowFontAtlas                                :: proc(atlas: ^FontAtlas)                                                                                                                                          ---
+	@(link_name="ImGui_DebugTextureIDToU64")                    DebugTextureIDToU64                          :: proc(tex_id: TextureID) -> u64                                                                                                                                   ---
 	@(link_name="ImGui_DebugHookIdInfo")                        DebugHookIdInfo                              :: proc(id: ID, data_type: DataType, data_id: rawptr, data_id_end: rawptr)                                                                                          ---
 	@(link_name="ImGui_DebugNodeColumns")                       DebugNodeColumns                             :: proc(columns: ^OldColumns)                                                                                                                                       ---
 	@(link_name="ImGui_DebugNodeDockNode")                      DebugNodeDockNode                            :: proc(node: ^DockNode, label: cstring)                                                                                                                            ---
@@ -3160,6 +3180,7 @@ foreign lib {
 	@(link_name="cImFontAtlasBuildDestroy")                     cImFontAtlasBuildDestroy                     :: proc(atlas: ^FontAtlas)                                                                                                                                          ---
 	@(link_name="cImFontAtlasBuildMain")                        cImFontAtlasBuildMain                        :: proc(atlas: ^FontAtlas)                                                                                                                                          ---
 	@(link_name="cImFontAtlasBuildSetupFontLoader")             cImFontAtlasBuildSetupFontLoader             :: proc(atlas: ^FontAtlas, font_loader: ^FontLoader)                                                                                                                ---
+	@(link_name="cImFontAtlasBuildNotifySetFont")               cImFontAtlasBuildNotifySetFont               :: proc(atlas: ^FontAtlas, old_font: ^Font, new_font: ^Font)                                                                                                        ---
 	@(link_name="cImFontAtlasBuildUpdatePointers")              cImFontAtlasBuildUpdatePointers              :: proc(atlas: ^FontAtlas)                                                                                                                                          ---
 	@(link_name="cImFontAtlasBuildRenderBitmapFromString")      cImFontAtlasBuildRenderBitmapFromString      :: proc(atlas: ^FontAtlas, x: c.int, y: c.int, w: c.int, h: c.int, in_str: cstring, in_marker_char: c.char)                                                         ---
 	@(link_name="cImFontAtlasBuildClear")                       cImFontAtlasBuildClear                       :: proc(atlas: ^FontAtlas)                                                                                                                                          --- // Clear output and custom rects
