@@ -4,7 +4,6 @@ import im "deps:odin-imgui"
 import "core:c/libc"
 import "core:fmt"
 import "core:mem"
-import "base:runtime"
 import sdl "vendor:sdl3"
 
 IMTEXTUREID_INVALID :: 0
@@ -184,7 +183,7 @@ ImGui_ImplSDLGPU3_SetupRenderState :: proc(draw_data : ^im.DrawData, render_stat
 
 CreateOrResizeBuffers :: proc "c" (buffer : ^^sdl.GPUBuffer, transfer_buffer : ^^sdl.GPUTransferBuffer, old_size : ^u32, new_size :
 u32, usage : sdl.GPUBufferUsageFlags) {
-	context = runtime.default_context()
+	context = g_context
 	bd := ImGui_ImplSDLGPU3_GetBackendData()
     v := &bd.init_info
 
@@ -389,7 +388,7 @@ ImGui_ImplSDLGPU3_DestroyTexture :: proc(tex : ^im.TextureData) {
 }
 
 ImGui_ImplSDLGPU3_UpdateTexture :: proc "c" (tex : ^im.TextureData) {
-	context = runtime.default_context()
+	context = g_context
 	bd := ImGui_ImplSDLGPU3_GetBackendData()
     v := &bd.init_info
 
@@ -772,7 +771,7 @@ ImGui_ImplSDLGPU3_NewFrame :: proc() {
 //--------------------------------------------------------------------------------------------------------
 
 ImGui_ImplSDLGPU3_CreateWindow :: proc "c" (viewport : ^im.Viewport) {
-	context = runtime.default_context()
+	context = g_context
 	data := ImGui_ImplSDLGPU3_GetBackendData()
     window := sdl.GetWindowFromID(cast(sdl.WindowID)cast(uintptr)viewport.PlatformHandle)
     if !sdl.ClaimWindowForGPUDevice(data.init_info.device, window) {
@@ -788,7 +787,7 @@ ImGui_ImplSDLGPU3_CreateWindow :: proc "c" (viewport : ^im.Viewport) {
 }
 
 ImGui_ImplSDLGPU3_RenderWindow :: proc "c" (viewport : ^im.Viewport, d : rawptr) {
-	context = runtime.default_context()
+	context = g_context
 	data := ImGui_ImplSDLGPU3_GetBackendData()
     window := sdl.GetWindowFromID(cast(sdl.WindowID)cast(uintptr)viewport.PlatformHandle)
 

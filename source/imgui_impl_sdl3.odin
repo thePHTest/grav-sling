@@ -9,7 +9,6 @@ import "core:c"
 import "core:c/libc"
 import "core:fmt"
 import "core:math"
-import "base:runtime"
 import "core:strings"
 import "core:sys/windows"
 import vk "vendor:vulkan"
@@ -170,7 +169,7 @@ ImGui_ImplSDL3_PlatformSetImeData :: proc "c" (ctx : ^im.Context, viewport : ^im
 // We discard viewport passed via ImGuiPlatformImeData and always call SDL_StartTextInput() on SDL_GetKeyboardFocus().
 ImGui_ImplSDL3_UpdateIme :: proc "contextless" () {
 	// TODO: Assign global logger in this function
-	context = runtime.default_context()
+	context = g_context
 	bd := ImGui_ImplSDL3_GetBackendData()
     data := &bd.ime_data
     window := sdl.GetKeyboardFocus()
@@ -530,8 +529,8 @@ ImGui_ImplSDL3_Init :: proc(window: ^sdl.Window, renderer: ^sdl.Renderer, sdl_gl
 	// TODO: free these things
 	bd := new(ImGui_ImplSDL3_Data)
 	// Note that this is null terminated so it can be used as a cstring
-	bd.backend_platform_name = fmt.aprintf("imgui_impl_sdl3 (%d.%d.%d; %d.%d.%d)%s", sdl.MAJOR_VERSION, sdl.MINOR_VERSION,
-	sdl.MICRO_VERSION, sdl.VERSIONNUM_MAJOR(ver_linked), sdl.VERSIONNUM_MINOR(ver_linked), sdl.VERSIONNUM_MICRO(ver_linked), '0')
+	bd.backend_platform_name = fmt.aprintf("imgui_impl_sdl3 (%d.%d.%d; %d.%d.%d)\x00", sdl.MAJOR_VERSION, sdl.MINOR_VERSION,
+	sdl.MICRO_VERSION, sdl.VERSIONNUM_MAJOR(ver_linked), sdl.VERSIONNUM_MINOR(ver_linked), sdl.VERSIONNUM_MICRO(ver_linked))
 	io.BackendPlatformUserData = bd
 	io.BackendPlatformName = strings.unsafe_string_to_cstring(bd.backend_platform_name)
 	io.BackendFlags += {.HasMouseCursors} // We can honor GetMouseCursor() values (optional)
@@ -681,6 +680,11 @@ ImGui_ImplSDL3_Shutdown :: proc() {
     io.BackendPlatformUserData = nil
     io.BackendFlags &= ~{.HasMouseCursors, .HasSetMousePos, .HasGamepad, .PlatformHasViewports, .HasMouseHoveredViewport, .HasParentViewport}
     im.PlatformIO_ClearPlatformHandlers(platform_io)
+	delete(bd.gamepads)
+	// TODO: We should really be using ImVector.resize, push_back etc but Cimgui isn't exposing that for any ImVector<T> types. As
+	// a result, we need to not delete the bd.platform_io_monitors dynamic array and let the ~ImVector<> destructor handle it during DeleteContext
+	//delete(bd.platform_io_monitors)
+	delete(bd.backend_platform_name)
     free(bd)
 }
 
@@ -905,7 +909,8 @@ ImGui_ImplSDL3_UpdateGamepads :: proc() {
 ImGui_ImplSDL3_UpdateMonitors :: proc() {
 	bd := ImGui_ImplSDL3_GetBackendData()
     platform_io := im.GetPlatformIO()
-	// TODO: Is the translation of resize here to Odin correct? I think so. No generated Vector_resize procs in the bindings.
+	// TODO: We should really be using ImVector.resize, push_back etc but Cimgui isn't exposing that for any ImVector<T> types. As
+	// a result, we need to not dlete the dynamic array and let the ~ImVector<> destructor handle it during DeleteContext
 	resize(&bd.platform_io_monitors, 0)
 	platform_io.Monitors.Size = i32(len(bd.platform_io_monitors))
 	platform_io.Monitors.Capacity = i32(cap(bd.platform_io_monitors))
@@ -1044,7 +1049,7 @@ ImGui_ImplSDL3_GetSDLWindowFromViewport :: proc "c" (viewport : ^im.Viewport) ->
 }
 
 ImGui_ImplSDL3_CreateWindow :: proc "c" (viewport : ^im.Viewport) {
-	context = runtime.default_context()
+	context = g_context
 	bd := ImGui_ImplSDL3_GetBackendData()
     vd := new(ImGui_ImplSDL3_ViewportData)
     viewport.PlatformUserData = vd
@@ -1089,7 +1094,7 @@ when ODIN_OS != .Darwin {
 }
 
 ImGui_ImplSDL3_DestroyWindow :: proc "c" (viewport : ^im.Viewport) {
-	context = runtime.default_context()
+	context = g_context
     if vd := cast(^ImGui_ImplSDL3_ViewportData)viewport.PlatformUserData; vd != nil {
         if vd.gl_context != nil && vd.window_owned {
             sdl.GL_DestroyContext(vd.gl_context)

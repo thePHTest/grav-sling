@@ -7,12 +7,13 @@ package main
 
 import "core:dynlib"
 import "core:fmt"
-import "core:c/libc"
+//import "core:c/libc"
 import "core:os"
 import "core:os/os2"
 import "core:log"
 import "core:mem"
 import "core:path/filepath"
+import "core:strings"
 
 when ODIN_OS == .Windows {
 	DLL_EXT :: ".dll"
@@ -113,7 +114,7 @@ main :: proc() {
 		err := false
 
 		for _, value in a.allocation_map {
-			fmt.printf("%v: Leaked %v bytes\n", value.location, value.size)
+			fmt.printf("%v: [Leaked %v bytes]\n    [Bytes]: \"%s\"\n", value.location, value.size, strings.string_from_ptr(cast([^]u8)value.memory, value.size))
 			err = true
 		}
 
@@ -133,6 +134,8 @@ main :: proc() {
 	game_api.init_window()
 	game_api.init()
 
+	// TODO: Why did legend of tuna use default_allocator here?
+	//old_game_apis := make([dynamic]Game_API, default_allocator)
 	old_game_apis := make([dynamic]Game_API, default_allocator)
 
 	for !game_api.should_close() {
@@ -196,7 +199,7 @@ main :: proc() {
 			// This prevents the game from closing without you seeing the bad
 			// frees. This is mostly needed because I use Sublime Text and my game's
 			// console isn't hooked up into Sublime's console properly.
-			libc.getchar()
+			//libc.getchar()
 			panic("Bad free detected")
 		}
 
@@ -205,20 +208,24 @@ main :: proc() {
 
 	free_all(context.temp_allocator)
 	game_api.shutdown()
-	if reset_tracking_allocator(&tracking_allocator) {
-		// This prevents the game from closing without you seeing the memory
-		// leaks. This is mostly needed because I use Sublime Text and my game's
-		// console isn't hooked up into Sublime's console properly.
-		libc.getchar()
-	}
-
-	for &g in old_game_apis {
+		for &g in old_game_apis {
 		unload_game_api(&g)
 	}
 
 	delete(old_game_apis)
 
 	game_api.shutdown_window()
+
+	// TODO: I would love to move this to after unload_game_api() as this is currently
+	// logging false positives as a consequence. We can't right now as then we lose the
+	//  allocations from in the dll
+	if reset_tracking_allocator(&tracking_allocator) {
+		// This prevents the game from closing without you seeing the memory
+		// leaks. This is mostly needed because I use Sublime Text and my game's
+		// console isn't hooked up into Sublime's console properly.
+		//libc.getchar()
+	}
+
 	unload_game_api(&game_api)
 	mem.tracking_allocator_destroy(&tracking_allocator)
 }

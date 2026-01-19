@@ -19,8 +19,7 @@ game_update :: proc() {
 @(export)
 game_should_close :: proc() -> bool {
 	// TODO
-	return false
-	//return rl.WindowShouldClose()
+	return g_mem.finished
 }
 
 @(export)

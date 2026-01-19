@@ -96,6 +96,7 @@ ImGui_ImplSDLRenderer3_Shutdown :: proc() {
     io.BackendRendererUserData = nil
     io.BackendFlags &= ~{.RendererHasVtxOffset, .RendererHasTextures}
 	im.PlatformIO_ClearRendererHandlers(platform_io)
+	delete(bd.color_buffer)
     free(bd)
 }
 

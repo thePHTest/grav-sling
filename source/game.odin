@@ -1,11 +1,13 @@
 package game
 
+import "base:runtime"
 import b2 "box2d"
 //import rl "vendor:raylib"
 import sdl "vendor:sdl3"
 import im "deps:odin-imgui"
 import "core:fmt"
 import "core:log"
+import "core:c"
 //import "core:math"
 import "core:mem"
 import "core:strings"
@@ -58,6 +60,7 @@ Game_Memory :: struct {
 }
 
 //atlas: rl.Texture2D
+g_context : runtime.Context
 g_mem: ^Game_Memory
 g_window: ^sdl.Window
 when RENDERER_SDL_GPU {
@@ -146,6 +149,7 @@ update :: proc() {
 
 	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
 	*/
+
 	// Poll and handle events (inputs, window resize, etc.)
 	// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
 	// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
@@ -156,9 +160,11 @@ update :: proc() {
 	for sdl.PollEvent(&event) {
 		ImGui_ImplSDL3_ProcessEvent(&event)
 		if event.type == .QUIT {
+			log.info(".QUIT Event. Should close now")
 			g_mem.finished = true
 		}
 		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
+			log.info(".WINDOW_CLOSE_REQUESTED Event. Should close now")
 			g_mem.finished = true
 		}
 	}
@@ -272,6 +278,7 @@ update :: proc() {
         ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_sdl_renderer)
         sdl.RenderPresent(g_sdl_renderer)
 	}
+
 }
 
 Collision_Category :: enum u32 {
@@ -375,7 +382,99 @@ vec2_flip :: proc(p: Vec2) -> Vec2 {
 
 IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
 
+// Note that we have one weird case where platformIO.Monitors is being allocated as a [dynamic] in
+// ImGui_ImplSDL3_UpdateMonitors(), and then we directly assign to platformIO.Monitor's fields.
+// This means that it's allocation won't go through this proc. However, it's freeing will go through the free_func during the
+// ~ImVector<PlatformMonitor> destructor
+im_mem_alloc_func : im.MemAllocFunc : proc "c" (sz: c.size_t, user_data: rawptr) -> rawptr {
+	context = g_context
+	// TODO: Handle alloc error
+	result, _ := mem.alloc(int(sz))
+	return result
+}
+
+im_mem_free_func : im.MemFreeFunc : proc "c"(ptr: rawptr, user_data: rawptr) {
+	context = g_context
+	mem.free(ptr)
+}
+
+g_im_context : Im_Context
+Im_Context :: struct {
+	allocator : mem.Allocator,
+}
+
+im_init :: proc(main_scale : f32) {
+/*
+when ODIN_DEBUG {
+	g_im_context.allocator = runtime.default_allocator()
+	context.allocator = runtime.default_allocator()
+} else {
+	tracking_allocator : mem.Tracking_Allocator
+	mem.tracking_allocator_init(&tracking_allocator, context.allocator)
+	g_im_context.allocator = tracking_allocator
+	context.allocator = tracking_allocator
+}
+*/
+	// Setup Dear ImGui context
+	im.CHECKVERSION()
+	im.SetAllocatorFunctions(im_mem_alloc_func, im_mem_free_func)
+	im.CreateContext()
+	io := im.GetIO()
+	io.ConfigFlags += {.NavEnableKeyboard}
+	io.ConfigFlags += {.NavEnableGamepad}
+	io.ConfigFlags += {.DockingEnable}
+	io.ConfigFlags += {.ViewportsEnable}
+
+	// Setup Deaf ImGui style
+	im.StyleColorsDark()
+
+	// Setup scaling
+	style := im.GetStyle()
+	im.Style_ScaleAllSizes(style, main_scale)
+	style.FontScaleDpi = main_scale
+	io.ConfigDpiScaleFonts = true
+	io.ConfigDpiScaleViewports = true
+
+	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
+	if .ViewportsEnable in io.ConfigFlags {
+		style.WindowRounding = 0.0
+		style.Colors[im.Col.WindowBg].w = 1.0
+	}
+
+	when RENDERER_SDL_GPU {
+		// Setup Platform/Renderer backends
+		ImGui_ImplSDL3_InitForSDLGPU(g_window)
+		init_info : ImGui_ImplSDLGPU3_InitInfo
+		init_info.device = g_gpu_device
+		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
+		init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
+		init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
+		init_info.present_mode = .VSYNC
+		ImGui_ImplSDLGPU3_Init(&init_info)
+	} else {
+		ImGui_ImplSDL3_InitForSDLRenderer(g_window, g_sdl_renderer)
+		ImGui_ImplSDLRenderer3_Init(g_sdl_renderer)
+	}
+
+	// Load Fonts
+    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
+    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
+    // - If the file cannot be loaded, the function will return a nullptr. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
+    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use Freetype for higher quality font rendering.
+    // - Read 'docs/FONTS.md' for more instructions and details. If you like the default font but want it to scale better, consider using the 'ProggyVector' from the same author!
+    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
+    //style.FontSizeBase = 20.0f;
+    //io.Fonts->AddFontDefault();
+    //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
+    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
+    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
+    //IM_ASSERT(font != nullptr);
+}
+
 init_window :: proc() -> bool {
+	g_context = context
 	log.info("init sdl and window...")
 	/*
 	flags: rl.ConfigFlags
@@ -454,61 +553,7 @@ init_window :: proc() -> bool {
 		}
 	}
 
-	// Setup Dear ImGui context
-	im.CHECKVERSION()
-	im.CreateContext()
-	io := im.GetIO()
-	io.ConfigFlags += {.NavEnableKeyboard}
-	io.ConfigFlags += {.NavEnableGamepad}
-	io.ConfigFlags += {.DockingEnable}
-	io.ConfigFlags += {.ViewportsEnable}
-
-	// Setup Deaf ImGui style
-	im.StyleColorsDark()
-
-	// Setup scaling
-	style := im.GetStyle()
-	im.Style_ScaleAllSizes(style, main_scale)
-	style.FontScaleDpi = main_scale
-	io.ConfigDpiScaleFonts = true
-	io.ConfigDpiScaleViewports = true
-
-	// When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones
-	if .ViewportsEnable in io.ConfigFlags {
-		style.WindowRounding = 0.0
-		style.Colors[im.Col.WindowBg].w = 1.0
-	}
-
-	when RENDERER_SDL_GPU {
-		// Setup Platform/Renderer backends
-		ImGui_ImplSDL3_InitForSDLGPU(g_window)
-		init_info : ImGui_ImplSDLGPU3_InitInfo
-		init_info.device = g_gpu_device
-		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
-		init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
-		init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
-		init_info.present_mode = .VSYNC
-		ImGui_ImplSDLGPU3_Init(&init_info)
-	} else {
-		ImGui_ImplSDL3_InitForSDLRenderer(g_window, g_sdl_renderer)
-		ImGui_ImplSDLRenderer3_Init(g_sdl_renderer)
-	}
-
-	// Load Fonts
-    // - If no fonts are loaded, dear imgui will use the default font. You can also load multiple fonts and use ImGui::PushFont()/PopFont() to select them.
-    // - AddFontFromFileTTF() will return the ImFont* so you can store it if you need to select the font among multiple.
-    // - If the file cannot be loaded, the function will return a nullptr. Please handle those errors in your application (e.g. use an assertion, or display an error and quit).
-    // - Use '#define IMGUI_ENABLE_FREETYPE' in your imconfig file to use Freetype for higher quality font rendering.
-    // - Read 'docs/FONTS.md' for more instructions and details. If you like the default font but want it to scale better, consider using the 'ProggyVector' from the same author!
-    // - Remember that in C/C++ if you want to include a backslash \ in a string literal you need to write a double backslash \\ !
-    //style.FontSizeBase = 20.0f;
-    //io.Fonts->AddFontDefault();
-    //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf");
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf");
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf");
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
-    //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
-    //IM_ASSERT(font != nullptr);
+	im_init(main_scale)
 
 	log.info("init_window finished")
 	return true
@@ -662,19 +707,7 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 }
 
 // TODO: Add this cleanup stuff from the imgui examples main.cpp
- // Cleanup
-    // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
-    //SDL_WaitForGPUIdle(g_gpu_device);
-    //ImGui_ImplSDL3_Shutdown();
-    //ImGui_ImplSDLGPU3_Shutdown();
-    //ImGui::DestroyContext();
-
-    //SDL_ReleaseWindowFromGPUDevice(g_gpu_device, window);
-    //SDL_DestroyGPUDevice(g_gpu_device);
-    //SDL_DestroyWindow(window);
-    //SDL_Quit();
-
-	// TODO: Add cleanup from imgui example for sdl renderer 3
+// TODO: Add cleanup from imgui example for sdl renderer 3
 
 shutdown :: proc() {
 	log.info("shutdown...")
@@ -682,13 +715,39 @@ shutdown :: proc() {
 	//mem.free(g_mem.font.glyphs)
 	mem.delete(g_mem.pivots)
 	free(g_mem)
+
+	when RENDERER_SDL_GPU {
+	} else {
+	}
+
 	log.info("shutdown complete")
 }
 
 shutdown_window :: proc() {
 	log.info("shutdown sdl and window...")
-	//rl.CloseAudioDevice()
-	//rl.CloseWindow()
+	when RENDERER_SDL_GPU {
+		// Shutdown imgui
+		SDL_WaitForGPUIdle(g_gpu_device)
+		ImGui_ImplSDL3_Shutdown()
+		ImGui_ImplSDLGPU3_Shutdown()
+		im.DestroyContext()
+
+		// Shutdown sdl
+		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_window)
+		sdl.DestroyGPUDevice(g_gpu_device)
+		sdl.DestroyWindow(g_window)
+		sdl.Quit()
+	} else {
+		// Shutdown imgui
+		ImGui_ImplSDLRenderer3_Shutdown()
+		ImGui_ImplSDL3_Shutdown()
+		im.DestroyContext()
+
+		// Shutdown sdl
+		sdl.DestroyRenderer(g_sdl_renderer)
+		sdl.DestroyWindow(g_window)
+		sdl.Quit()
+	}
 	log.info("shutdown sdl and window complete")
 }
 
