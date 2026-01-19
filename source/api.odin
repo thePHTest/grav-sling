@@ -11,9 +11,24 @@ game_init_window :: proc() {
 }
 
 @(export)
-game_update :: proc() {
-	update()
-	draw()
+game_poll_input :: proc() {
+	poll_input()
+}
+
+@(export)
+game_update :: proc(t : f64, dt : f64) {
+	update(t, dt)
+}
+
+@(export)
+game_render :: proc(alpha : f64) {
+	render(alpha)
+}
+
+// TODO: Should this move into platform?
+@(export)
+game_hi_res_time_in_seconds :: proc() -> f64 {
+	return hi_res_time_in_seconds()
 }
 
 @(export)

@@ -13,6 +13,7 @@ import "core:os/os2"
 import "core:log"
 import "core:mem"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 
 when ODIN_OS == .Windows {
@@ -43,7 +44,10 @@ Game_API :: struct {
 	lib: dynlib.Library,
 	init_window: proc(),
 	init: proc(),
-	update: proc(),
+	poll_input : proc(),
+	update: proc(t : f64, dt : f64),
+	render: proc(alpha : f64),
+	hi_res_time_in_seconds : proc() -> f64,
 	should_close: proc() -> bool,
 	shutdown: proc(),
 	shutdown_window: proc(),
@@ -114,7 +118,8 @@ main :: proc() {
 		err := false
 
 		for _, value in a.allocation_map {
-			fmt.printf("%v: [Leaked %v bytes]\n    [Bytes]: \"%s\"\n", value.location, value.size, strings.string_from_ptr(cast([^]u8)value.memory, value.size))
+			fmt.printf("%v: [Leaked %v bytes]\n    [String]: \"%s\"\n    [Bytes]:  \"%v\"\n", value.location, value.size,
+			strings.string_from_ptr(cast([^]u8)value.memory, value.size), slice.bytes_from_ptr(value.memory, value.size))
 			err = true
 		}
 
@@ -138,8 +143,32 @@ main :: proc() {
 	//old_game_apis := make([dynamic]Game_API, default_allocator)
 	old_game_apis := make([dynamic]Game_API, default_allocator)
 
+	t : f64 = 0.0
+	dt : f64 = 0.01
+	current_time : f64 = game_api.hi_res_time_in_seconds()
+	accumulator : f64 = 0.0
+
 	for !game_api.should_close() {
-		game_api.update()
+
+		game_api.poll_input()
+
+		new_time : f64 = game_api.hi_res_time_in_seconds()
+		frame_time : f64 = new_time - current_time
+		// TODO: Move 0.25 to config
+		if frame_time > 0.25 {
+			frame_time = 0.25
+		}
+		current_time = new_time
+		accumulator += frame_time
+
+		for accumulator >= dt {
+			game_api.update(t, dt)
+			t += dt
+			accumulator -= dt
+		}
+		alpha : f64 = accumulator / dt
+		game_api.render(alpha)
+
 		force_reload := game_api.force_reload()
 		force_restart := game_api.force_restart()
 		reload := force_reload || force_restart

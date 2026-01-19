@@ -107,12 +107,33 @@ physics_world :: proc() -> b2.WorldId {
 	return g_mem.physics_world
 }
 
+poll_input :: proc() {
+	event : sdl.Event
+	for sdl.PollEvent(&event) {
+		ImGui_ImplSDL3_ProcessEvent(&event)
+		if event.type == .QUIT {
+			log.info(".QUIT Event. Should close now")
+			g_mem.finished = true
+		}
+		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
+			log.info(".WINDOW_CLOSE_REQUESTED Event. Should close now")
+			g_mem.finished = true
+		}
+	}
+
+	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
+	if .MINIMIZED in sdl.GetWindowFlags(g_window) {
+		sdl.Delay(10)
+		return
+	}
+}
+
 dt: f32
 real_dt: f32
 show_demo_window := true
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
-update :: proc() {
+update :: proc(t: f64, dt: f64) {
 	/*
 	dt = rl.GetFrameTime()
 	real_dt = dt
@@ -156,24 +177,95 @@ update :: proc() {
 	// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
 	// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
 	// [If using SDL_MAIN_USE_CALLBACKS: call ImGui_ImplSDL3_ProcessEvent() from your SDL_AppEvent() function]
-	event : sdl.Event
-	for sdl.PollEvent(&event) {
-		ImGui_ImplSDL3_ProcessEvent(&event)
-		if event.type == .QUIT {
-			log.info(".QUIT Event. Should close now")
-			g_mem.finished = true
-		}
-		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
-			log.info(".WINDOW_CLOSE_REQUESTED Event. Should close now")
-			g_mem.finished = true
-		}
+	
+
+	b2.World_Step(physics_world(), f32(dt), 4)	
+}
+
+Collision_Category :: enum u32 {
+	Wall,
+	Long_Cat,
+	Round_Cat,
+	Pivot,
+}
+
+rect_offset :: proc(r: Rect, o: Vec2) -> Rect {
+	return {
+		r.x + o.x,
+		r.y + o.y,
+		r.width,
+		r.height,
+	}
+}
+
+rect_flip :: proc(r: Rect) -> Rect {
+	return {
+		r.x, -r.y - r.height,
+		r.width, r.height,
+	}
+}
+
+draw_wall :: proc(wall : Wall) {
+	//mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
+	//rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
+}
+
+draw_pivot :: proc(pivot: Pivot) {
+	//rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
+}
+
+draw_world :: proc() {
+	round_cat_draw(g_mem.rc)
+	draw_wall(g_mem.left_wall)
+	draw_wall(g_mem.right_wall)
+	draw_wall(g_mem.top_wall)
+	draw_wall(g_mem.bottom_wall)
+	
+	for pivot in g_mem.pivots {
+		draw_pivot(pivot)
+	}
+	
+	// Origin
+	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
+}
+
+hi_res_time_in_seconds :: proc() -> f64 {
+	@(static) start_counter : u64
+	@(static) frequency : u64
+	// TODO: Way to avoid this if check overhead? Does it matter?
+	if start_counter == 0 {
+		start_counter = sdl.GetPerformanceCounter()
+		frequency = sdl.GetPerformanceFrequency()
 	}
 
-	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
-	if .MINIMIZED in sdl.GetWindowFlags(g_window) {
-		sdl.Delay(10)
-		return
+	current_counter := sdl.GetPerformanceCounter()
+	return f64(current_counter - start_counter) / f64(frequency)
+}
+
+render :: proc(alpha : f64) {
+	//debug_draw()
+	//rl.BeginDrawing()
+	//t := f32(rl.GetTime())
+	//game_cam := game_camera()
+
+	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
+	//rl.ClearBackground({0, 120, 153, 255})
+	//rl.BeginMode2D(game_cam)
+
+	draw_world()
+
+	//rl.EndMode2D()
+	//rl.BeginMode2D(ui_camera())
+
+
+	if g_mem.finished {
+		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
+	} else if g_mem.won {
+		//rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
 	}
+
+	//rl.EndMode2D()
+	//rl.EndDrawing()
 
 	// Start the Dear ImGui frame
 	when RENDERER_SDL_GPU {
@@ -279,79 +371,7 @@ update :: proc() {
         sdl.RenderPresent(g_sdl_renderer)
 	}
 
-}
 
-Collision_Category :: enum u32 {
-	Wall,
-	Long_Cat,
-	Round_Cat,
-	Pivot,
-}
-
-rect_offset :: proc(r: Rect, o: Vec2) -> Rect {
-	return {
-		r.x + o.x,
-		r.y + o.y,
-		r.width,
-		r.height,
-	}
-}
-
-rect_flip :: proc(r: Rect) -> Rect {
-	return {
-		r.x, -r.y - r.height,
-		r.width, r.height,
-	}
-}
-
-draw_wall :: proc(wall : Wall) {
-	//mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
-	//rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
-}
-
-draw_pivot :: proc(pivot: Pivot) {
-	//rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
-}
-
-draw_world :: proc() {
-	round_cat_draw(g_mem.rc)
-	draw_wall(g_mem.left_wall)
-	draw_wall(g_mem.right_wall)
-	draw_wall(g_mem.top_wall)
-	draw_wall(g_mem.bottom_wall)
-	
-	for pivot in g_mem.pivots {
-		draw_pivot(pivot)
-	}
-	
-	// Origin
-	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
-}
-
-draw :: proc() {
-	//debug_draw()
-	//rl.BeginDrawing()
-	//t := f32(rl.GetTime())
-	//game_cam := game_camera()
-
-	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
-	//rl.ClearBackground({0, 120, 153, 255})
-	//rl.BeginMode2D(game_cam)
-
-	draw_world()
-
-	//rl.EndMode2D()
-	//rl.BeginMode2D(ui_camera())
-
-
-	if g_mem.finished {
-		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
-	} else if g_mem.won {
-		//rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
-	}
-
-	//rl.EndMode2D()
-	//rl.EndDrawing()
 }
 
 LEVEL_1_POS :: Vec2 {70, 70+10}
