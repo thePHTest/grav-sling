@@ -250,7 +250,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		}
 		
 		return la.normalize0(result)
-	}() : Vec2{1.0, 0.0}
+	}() : Vec2{0.0, 0.0}
 	
 	MAX_VERTICAL_JET :: 3
 	MAX_HORIZONTAL_JET :: 3

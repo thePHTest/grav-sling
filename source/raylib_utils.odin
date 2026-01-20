@@ -15,13 +15,16 @@ rect_world_to_screen :: proc(world_rect : Rect, camera : Camera2D, screen : Vec2
 	return screen_rect
 }
 
+transform_to_rect :: proc(transform : Transform, width : f32, height : f32) -> Rect {
+	return Rect{transform.pos.x - width/2.0, transform.pos.y - height/2.0, width, height}
+}
+
 draw_dest_rect :: proc(render_state : Render_State, source : Rect, camera : Camera2D, screen : Vec2) -> Rect {
 	//world_rect := Rect {render_state.curr_transform.pos.x, -render_state.curr_transform.pos.y, source.w/GAME_SCALE, source.h/GAME_SCALE}
 	// TODO: Wht did legend of tuna use this GAME_SCALE? Just for determining body size from texture? Seems weird if that is the
 	// case
 	SOURCE_SCALE :: 10
-	world_rect := Rect {render_state.curr_transform.pos.x, -render_state.curr_transform.pos.y, source.w / SOURCE_SCALE, source.h /
-SOURCE_SCALE}
+	world_rect := transform_to_rect(render_state.curr_transform, source.w / SOURCE_SCALE, source.h / SOURCE_SCALE)
 	return rect_world_to_screen(world_rect, camera, screen)
 }
 
