@@ -3,7 +3,9 @@ package game
 import b2 "box2d"
 import rl "vendor:raylib"
 import "core:fmt"
+import "core:log"
 import "core:math"
+import sdl "vendor:sdl3"
 import la "core:math/linalg"
 
 _ :: math
@@ -11,6 +13,19 @@ _ :: fmt
 
 USE_PIVOTS :: false
 USE_JETS :: false
+
+Render_State :: struct {
+	prev_transform : Transform,
+	curr_transform : Transform,
+}
+
+Rotation :: struct {
+	c, s: f32, // cosine and sine
+}
+Transform :: struct {
+	pos : Vec2,
+	rotation : Rotation,
+}
 
 Round_Cat :: struct {
 	body: b2.BodyId,
@@ -29,6 +44,8 @@ Round_Cat :: struct {
 	
 	distance_joint_pivot_id: b2.BodyId,
 	distance_joint: b2.JointId,
+
+	render_state : Render_State,
 }
 
 round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
@@ -87,7 +104,7 @@ smoothstart5 :: proc(t: f32) -> f32 {
 	return t * t * t * t * t
 }
 
-round_cat_draw :: proc(rc: Round_Cat) {
+round_cat_render :: proc(rc: Round_Cat, camera : Camera2D, screen : Vec2) {
 	//a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
 	//source := atlas_textures[.Round_Cat].rect
 	//pos := body_pos(rc.body)
@@ -97,15 +114,23 @@ round_cat_draw :: proc(rc: Round_Cat) {
 	//rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
 	
 	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
-	
+
+	// Try sdl rect render
+	source := atlas_textures[.Round_Cat].rect
+	dest := draw_dest_rect(rc.render_state, source, camera, screen)
+	log.info(dest)
+	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 255, 255)
+	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&dest)
+
 	if rc.distance_joint_pivot_id != {} {
 		//pivot_pos := body_pos(rc.distance_joint_pivot_id)
 		//rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
 	}
 
 	if rc.pivot.body != {} {
-		draw_pivot(rc.pivot)
+		pivot_render(rc.pivot)
 	}
+
 
 }
 
@@ -225,7 +250,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		}
 		
 		return la.normalize0(result)
-	}() : Vec2{}
+	}() : Vec2{1.0, 0.0}
 	
 	MAX_VERTICAL_JET :: 3
 	MAX_HORIZONTAL_JET :: 3
@@ -300,5 +325,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	if la.length(current_velocity) > max_velocity {
 		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)
 	}
-	
+
+	rc.render_state.prev_transform = rc.render_state.curr_transform
+	rc.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(rc.body)
 }

@@ -1,5 +1,7 @@
 package game
 
+// TODO
+// - Abstract over SDL. sys package, renderer package, etc
 import "base:runtime"
 import b2 "box2d"
 //import rl "vendor:raylib"
@@ -75,8 +77,6 @@ refresh_globals :: proc() {
 	//font = g_mem.font
 }
 
-GAME_SCALE :: 10
-
 Camera2D :: struct {
 	offset:   Vec2,            // Camera offset (displacement from target)
 	target:   Vec2,            // Camera target (rotation and zoom origin)
@@ -85,15 +85,20 @@ Camera2D :: struct {
 }
 
 game_camera :: proc() -> Camera2D {
-	assert(false, "unimplemented")
-
 	//w := f32(rl.GetScreenWidth())
 	//h := f32(rl.GetScreenHeight())
 
 	return {
+		zoom = 10.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
+}
+
+get_screen :: proc() -> Vec2 {
+	w, h : i32
+	sdl.GetWindowSizeInPixels(g_window, &w, &h)
+	return Vec2{f32(w), f32(h)}
 }
 
 ui_camera :: proc() -> Camera2D {
@@ -107,17 +112,57 @@ physics_world :: proc() -> b2.WorldId {
 	return g_mem.physics_world
 }
 
+EvKey :: struct {
+	window_id : u32,
+	using _ : struct #raw_union {
+		// TODO: Is scancode right here? Or should I use Keycode?
+		scancode : sdl.Scancode,
+		rawkey : i32,
+	},
+	flags : bit_field u8 {
+		pressed : bool | 1,
+		repeat : bool | 1,
+	},
+}
+
+// TODO: Array of gamepads
+Gamepad_State :: struct {
+	buttons : [sdl.GamepadButton]EvKey,
+}
+g_gamepad : Gamepad_State
+
 poll_input :: proc() {
+	// Poll and handle events (inputs, window resize, etc.)
+	// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
+	// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
+	// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
+	// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
+	// [If using SDL_MAIN_USE_CALLBACKS: call ImGui_ImplSDL3_ProcessEvent() from your SDL_AppEvent() function]
 	event : sdl.Event
 	for sdl.PollEvent(&event) {
 		ImGui_ImplSDL3_ProcessEvent(&event)
 		if event.type == .QUIT {
-			log.info(".QUIT Event. Should close now")
-			g_mem.finished = true
 		}
 		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
-			log.info(".WINDOW_CLOSE_REQUESTED Event. Should close now")
-			g_mem.finished = true
+		}
+
+		#partial switch event.type {
+			case .QUIT:
+				log.info(".QUIT Event. Should close now")
+				g_mem.finished = true
+			case .WINDOW_CLOSE_REQUESTED:
+				log.info(".WINDOW_CLOSE_REQUESTED Event. Should close now")
+				g_mem.finished = true
+			case .GAMEPAD_ADDED:
+			// TODO
+			case .GAMEPAD_REMOVED:
+			// TODO
+			case .GAMEPAD_BUTTON_DOWN:
+			fallthrough
+			case .GAMEPAD_BUTTON_UP:
+			// TODO: Is this window id handling correct?
+			g_gamepad.buttons[sdl.GamepadButton(event.gbutton.button)].window_id = u32(event.window.windowID)
+			g_gamepad.buttons[sdl.GamepadButton(event.gbutton.button)].flags.pressed = event.gbutton.down 
 		}
 	}
 
@@ -128,8 +173,6 @@ poll_input :: proc() {
 	}
 }
 
-dt: f32
-real_dt: f32
 show_demo_window := true
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
@@ -171,15 +214,8 @@ update :: proc(t: f64, dt: f64) {
 	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
 	*/
 
-	// Poll and handle events (inputs, window resize, etc.)
-	// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-	// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
-	// - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
-	// Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
-	// [If using SDL_MAIN_USE_CALLBACKS: call ImGui_ImplSDL3_ProcessEvent() from your SDL_AppEvent() function]
-	
-
 	b2.World_Step(physics_world(), f32(dt), 4)	
+	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
 }
 
 Collision_Category :: enum u32 {
@@ -193,36 +229,44 @@ rect_offset :: proc(r: Rect, o: Vec2) -> Rect {
 	return {
 		r.x + o.x,
 		r.y + o.y,
-		r.width,
-		r.height,
+		r.w,
+		r.h,
 	}
 }
 
 rect_flip :: proc(r: Rect) -> Rect {
 	return {
-		r.x, -r.y - r.height,
-		r.width, r.height,
+		r.x, -r.y - r.h,
+		r.w, r.h,
 	}
 }
 
-draw_wall :: proc(wall : Wall) {
-	//mid := Vec2 {wall.rect.width/2, wall.rect.height/2}
-	//rl.DrawRectanglePro(rect_offset(rect_flip(wall.rect), mid), mid, -wall.rot*RAD2DEG, rl.DARKGREEN)
+wall_render :: proc(wall : Wall, camera : Camera2D, screen : Vec2) {
+	screen_rect := rect_world_to_screen(wall.rect, camera, screen)
+	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 255, 0, 255)
+	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&screen_rect)
 }
 
-draw_pivot :: proc(pivot: Pivot) {
+pivot_render :: proc(pivot: Pivot) {
 	//rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
 }
 
-draw_world :: proc() {
-	round_cat_draw(g_mem.rc)
-	draw_wall(g_mem.left_wall)
-	draw_wall(g_mem.right_wall)
-	draw_wall(g_mem.top_wall)
-	draw_wall(g_mem.bottom_wall)
+world_render :: proc(camera : Camera2D, screen : Vec2) {
+
+	// Draw the origin
+	sdl.SetRenderDrawColor(g_sdl_renderer, 255, 0, 0, 255)
+	origin_dim :: 1.0
+	origin_screen_rect := rect_world_to_screen(Rect{-0.5*origin_dim, -0.5*origin_dim, origin_dim, origin_dim}, camera, screen)
+	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&origin_screen_rect)
+
+	round_cat_render(g_mem.rc, camera, screen)
+	wall_render(g_mem.left_wall, camera, screen)
+	wall_render(g_mem.right_wall, camera, screen)
+	wall_render(g_mem.top_wall, camera, screen)
+	wall_render(g_mem.bottom_wall, camera, screen)
 	
 	for pivot in g_mem.pivots {
-		draw_pivot(pivot)
+		pivot_render(pivot)
 	}
 	
 	// Origin
@@ -242,31 +286,7 @@ hi_res_time_in_seconds :: proc() -> f64 {
 	return f64(current_counter - start_counter) / f64(frequency)
 }
 
-render :: proc(alpha : f64) {
-	//debug_draw()
-	//rl.BeginDrawing()
-	//t := f32(rl.GetTime())
-	//game_cam := game_camera()
-
-	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
-	//rl.ClearBackground({0, 120, 153, 255})
-	//rl.BeginMode2D(game_cam)
-
-	draw_world()
-
-	//rl.EndMode2D()
-	//rl.BeginMode2D(ui_camera())
-
-
-	if g_mem.finished {
-		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
-	} else if g_mem.won {
-		//rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
-	}
-
-	//rl.EndMode2D()
-	//rl.EndDrawing()
-
+im_render :: proc() {
 	// Start the Dear ImGui frame
 	when RENDERER_SDL_GPU {
 		ImGui_ImplSDLGPU3_NewFrame()
@@ -368,9 +388,40 @@ render :: proc(alpha : f64) {
         sdl.SetRenderDrawColorFloat(g_sdl_renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
         sdl.RenderClear(g_sdl_renderer)
         ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_sdl_renderer)
-        sdl.RenderPresent(g_sdl_renderer)
 	}
 
+
+}
+
+render :: proc(alpha : f64) {
+	//debug_draw()
+	//rl.BeginDrawing()
+	//t := f32(rl.GetTime())
+	game_cam := game_camera()
+	screen := get_screen()
+
+	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
+	//rl.ClearBackground({0, 120, 153, 255})
+	//rl.BeginMode2D(game_cam)
+
+	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 0, 255)
+	sdl.RenderClear(g_sdl_renderer)
+	world_render(game_cam, screen)
+	//im_render()
+	sdl.RenderPresent(g_sdl_renderer)
+
+	//rl.EndMode2D()
+	//rl.BeginMode2D(ui_camera())
+
+
+	if g_mem.finished {
+		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)
+	} else if g_mem.won {
+		//rl.DrawTextEx(font, "YAY!!! TUNA", {40, 40}, 40, 0, rl.WHITE)
+	}
+
+	//rl.EndMode2D()
+	//rl.EndDrawing()
 
 }
 
@@ -530,8 +581,9 @@ init_window :: proc() -> bool {
 	window_flags := sdl.WindowFlags{.RESIZABLE, .HIDDEN, .HIGH_PIXEL_DENSITY}
 
 	// TODO: Proper window size settings
-	// TODO: Proper indow flags settings
-	g_window = sdl.CreateWindow(GAME_TITLE, i32(1280 * main_scale), i32(1080 * main_scale), window_flags)
+	// TODO: Proper indow flags setting
+	//g_window = sdl.CreateWindow(GAME_TITLE, i32(1920 * main_scale), i32(1080 * main_scale), window_flags)
+	g_window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
 	if g_window == nil {
 		log.error("sdl.CreateWindow() failed:", sdl.GetError())
 		return false
@@ -583,8 +635,8 @@ Vec2 :: [2]f32
 Rect :: struct {
 	x:      f32,                  // Rectangle bottom-left corner position x
 	y:      f32,                  // Rectangle bottom-left corner position y
-	width:  f32,                  // Rectangle width
-	height: f32,                  // Rectangle height
+	w:      f32,                  // Rectangle width
+	h:      f32,                  // Rectangle height
 }
 
 //GRAVITY :: Vec2 {0, -9.82*10}
@@ -688,11 +740,11 @@ wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	}
 
 	body_def := b2.DefaultBodyDef()
-	body_def.position = b2.Vec2{rect.x + rect.width/2, rect.y + rect.height/2}
+	body_def.position = b2.Vec2{rect.x + rect.w/2, rect.y + rect.h/2}
 	body_def.rotation = b2.MakeRot(rot)
 	w.body = b2.CreateBody(physics_world(), body_def)
 
-	box := b2.MakeBox((rect.width/2), (rect.height/2))
+	box := b2.MakeBox((rect.w/2), (rect.h/2))
 	shape_def := b2.DefaultShapeDef()
 	shape_def.friction = 0.7
 	shape_def.filter = {
