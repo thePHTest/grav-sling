@@ -1,5 +1,6 @@
 package game
 
+import m "core:math"
 import rl "vendor:raylib"
 import b2 "box2d"
 import sdl "vendor:sdl3"
@@ -54,6 +55,27 @@ point_world_to_screen :: proc(p : Vec2, camera : Camera2D, screen : Vec2) -> Vec
 render_line :: proc(a,b : Vec2, camera : Camera2D, screen : Vec2) {
 	sdl.RenderLine(g_sdl_renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
 camera, screen)))
+}
+
+render_circle_filled :: proc(c : Vec2, r : f32, camera : Camera2D, screen : Vec2) {
+	screen_c := point_world_to_screen(c, camera, screen)
+	screen_r := r * camera.zoom
+
+	min_y := int(m.ceil(screen_c.y - screen_r))
+	max_y := int(m.floor(screen_c.y + screen_r))
+
+	r2 := screen_r*screen_r
+
+	// Scanlines
+	for y in min_y..=max_y {
+		dy := f32(y) - screen_c.y
+		dx := m.sqrt(r2 - dy * dy)
+
+		x1 := int(m.ceil(screen_c.x - dx))
+		x2 := int(m.floor(screen_c.x + dx))
+
+		sdl.RenderLine(g_sdl_renderer, f32(x1), f32(y), f32(x2), f32(y))
+	}
 }
 
 draw_dest_rect :: proc(render_state : Render_State, source : Rect, camera : Camera2D, screen : Vec2, alpha : f64) -> Rect {

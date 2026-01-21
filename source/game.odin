@@ -702,8 +702,8 @@ wall_render :: proc(wall : Wall, camera : Camera2D, screen : Vec2) {
 	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&screen_rect)
 }
 
-pivot_render :: proc(pivot: Pivot) {
-	//rl.DrawCircleV(vec2_flip(pivot.pos), pivot.radius, rl.YELLOW)
+pivot_render :: proc(pivot: Pivot, camera : Camera2D, screen : Vec2) {
+	render_circle_filled(pivot.pos, pivot.radius, camera, screen)
 }
 
 world_render :: proc(camera : Camera2D, screen : Vec2, alpha : f64) {
@@ -721,7 +721,7 @@ world_render :: proc(camera : Camera2D, screen : Vec2, alpha : f64) {
 	wall_render(g_mem.bottom_wall, camera, screen)
 	
 	for pivot in g_mem.pivots {
-		pivot_render(pivot)
+		pivot_render(pivot, camera, screen)
 	}
 	
 	// Origin

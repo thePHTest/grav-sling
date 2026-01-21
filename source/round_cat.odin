@@ -129,7 +129,7 @@ round_cat_render :: proc(rc: Round_Cat, camera : Camera2D, screen : Vec2, alpha 
 	}
 
 	if rc.pivot.body != {} {
-		pivot_render(rc.pivot)
+		pivot_render(rc.pivot, camera, screen)
 	}
 
 
