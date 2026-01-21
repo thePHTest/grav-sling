@@ -1,18 +1,18 @@
 package game
 
 import b2 "box2d"
-import rl "vendor:raylib"
 import "core:fmt"
 import "core:log"
 import "core:math"
 import sdl "vendor:sdl3"
 import la "core:math/linalg"
 
-_ :: math
 _ :: fmt
+_ :: math
+_ :: log
 
 USE_PIVOTS :: false
-USE_JETS :: false
+USE_JETS :: true
 
 Render_State :: struct {
 	prev_transform : Transform,
@@ -104,27 +104,28 @@ smoothstart5 :: proc(t: f32) -> f32 {
 	return t * t * t * t * t
 }
 
-round_cat_render :: proc(rc: Round_Cat, camera : Camera2D, screen : Vec2) {
+round_cat_render :: proc(rc: Round_Cat, camera : Camera2D, screen : Vec2, alpha : f64) {
 	//a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
 	//source := atlas_textures[.Round_Cat].rect
 	//pos := body_pos(rc.body)
-	//aim_pos := pos + rc.aim_range * rc.aim_direction
 	//dest := draw_dest_rect(pos, source)
 
 	//rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
 	
-	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
 
 	// Try sdl rect render
 	source := atlas_textures[.Round_Cat].rect
-	dest := draw_dest_rect(rc.render_state, source, camera, screen)
-	log.info(dest)
+	dest := draw_dest_rect(rc.render_state, source, camera, screen, alpha)
 	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 255, 255)
 	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&dest)
 
+	pos := body_pos(rc.body)
+	aim_pos := pos + rc.aim_range * rc.aim_direction
+	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
+	render_line(pos, aim_pos, camera, screen)
 	if rc.distance_joint_pivot_id != {} {
-		//pivot_pos := body_pos(rc.distance_joint_pivot_id)
-		//rl.DrawLineEx(vec2_flip(pos), vec2_flip(pivot_pos), 0.5, rl.DARKPURPLE)
+		pivot_pos := body_pos(rc.distance_joint_pivot_id)
+		render_line(pos, pivot_pos, camera, screen)
 	}
 
 	if rc.pivot.body != {} {
@@ -231,21 +232,21 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 
 	dir : Vec2 = USE_JETS ? proc() -> Vec2 {
 		result : Vec2
-		if rl.IsKeyDown(.W) {
+		if keyboard_is_key_pressed(g_keyboard, .W) {
 			result.y = 1.0
-		} else if rl.IsKeyDown(.S) {
+		} else if keyboard_is_key_pressed(g_keyboard, .S) {
 			result.y = -1.0
 		} else {
-			result.y = rl.GetGamepadAxisMovement(0, .LEFT_Y) * -1
+			result.y = gamepad_axis_normalize(g_gamepad, .LEFTY) * -1
 			result.y = apply_deadzone(deadzone, result.y)
 		}
 		
-		if rl.IsKeyDown(.A) {
+		if keyboard_is_key_pressed(g_keyboard, .A) {
 			result.x = -1.0
-		} else if rl.IsKeyDown(.D) {
+		} else if keyboard_is_key_pressed(g_keyboard, .D) {
 			result.x = 1.0
 		} else {
-			result.x = rl.GetGamepadAxisMovement(0, .LEFT_X)
+			result.x = gamepad_axis_normalize(g_gamepad, .LEFTX)
 			result.x = apply_deadzone(deadzone, result.x)
 		}
 		
@@ -278,8 +279,8 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	force : f32 = 400.0
 	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
 	
-	aim_joystick_left := USE_JETS ? rl.GetGamepadAxisMovement(0, .RIGHT_X) : rl.GetGamepadAxisMovement(0, .LEFT_X)
-	aim_joystick_right := USE_JETS ? rl.GetGamepadAxisMovement(0, .RIGHT_Y) : rl.GetGamepadAxisMovement(0, .LEFT_Y) * -1.0 // Invert
+	aim_joystick_left := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTX) : gamepad_axis_normalize(g_gamepad, .LEFTX)
+	aim_joystick_right := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0 : gamepad_axis_normalize(g_gamepad, .LEFTY) * -1.0 // Invert
 	aim_joystick_left = apply_deadzone(deadzone, aim_joystick_left)
 	aim_joystick_right = apply_deadzone(deadzone, aim_joystick_right)
 	rc.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
@@ -288,7 +289,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	}
 
 	
-	if rl.IsGamepadButtonPressed(0, .RIGHT_FACE_DOWN) {
+	if gamepad_is_button_pressed(g_gamepad, .SOUTH) {
 		// TODO: Bool instead of comparing to zero struct?
 		if rc.distance_joint_pivot_id == {} {
 			rc_pos := body_pos(rc.body)
