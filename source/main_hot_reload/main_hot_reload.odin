@@ -45,7 +45,7 @@ Game_API :: struct {
 	init_window: proc(),
 	init: proc(),
 	poll_input : proc(),
-	update: proc(t : f64, dt : f64),
+	update: proc(tick_num : int, frame_num : int, frame_tick_num : int, t : f64, dt : f64),
 	render: proc(alpha : f64),
 	hi_res_time_in_seconds : proc() -> f64,
 	should_close: proc() -> bool,
@@ -143,12 +143,16 @@ main :: proc() {
 	//old_game_apis := make([dynamic]Game_API, default_allocator)
 	old_game_apis := make([dynamic]Game_API, default_allocator)
 
+	tick_num : int = 0
+	frame_num : int = 0
+	frame_tick_num : int = 0
 	t : f64 = 0.0
 	dt : f64 = 0.01
 	current_time : f64 = game_api.hi_res_time_in_seconds()
 	accumulator : f64 = 0.0
 
 	for !game_api.should_close() {
+		frame_tick_num = 0
 
 		game_api.poll_input()
 
@@ -162,9 +166,11 @@ main :: proc() {
 		accumulator += frame_time
 
 		for accumulator >= dt {
-			game_api.update(t, dt)
+			game_api.update(tick_num, frame_num, frame_tick_num, t, dt)
 			t += dt
 			accumulator -= dt
+			tick_num += 1
+			frame_tick_num += 1
 		}
 		alpha : f64 = accumulator / dt
 		game_api.render(alpha)

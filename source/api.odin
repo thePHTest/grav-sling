@@ -16,8 +16,8 @@ game_poll_input :: proc() {
 }
 
 @(export)
-game_update :: proc(t : f64, dt : f64) {
-	update(t, dt)
+game_update :: proc(tick_num : int, frame_num : int, frame_tick_num : int, t : f64, dt : f64) {
+	update(tick_num, frame_num, frame_tick_num, t, dt)
 }
 
 @(export)

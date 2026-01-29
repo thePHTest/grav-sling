@@ -214,6 +214,57 @@ round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, 
 	rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
+round_cat_apply_command_aim :: proc(round_cat : ^Round_Cat, game_command : Game_Command) {
+	round_cat.aim_direction = game_command.val
+	if la.length(round_cat.aim_direction) > 1 {
+		round_cat.aim_direction = la.normalize0(round_cat.aim_direction)
+	}
+}
+
+round_cat_apply_command_move :: proc(round_cat : ^Round_Cat, game_command : Game_Command) {
+	force : f32 = 400.0
+	b2.Body_ApplyForceToCenter(round_cat.body, force*game_command.val, true)
+
+	max_velocity :: 75.0
+	current_velocity := b2.Body_GetLinearVelocity(round_cat.body)
+	if la.length(current_velocity) > max_velocity {
+		b2.Body_SetLinearVelocity(round_cat.body, la.normalize(current_velocity) * max_velocity)
+	}
+
+}
+
+round_cat_apply_command_pivot_on_off :: proc(round_cat : ^Round_Cat, pivots : [dynamic]Pivot, physics_world : b2.WorldId, game_command : Game_Command) {
+	// TODO: Bool instead of comparing to zero struct?
+	if round_cat.distance_joint_pivot_id == {} {
+		rc_pos := body_pos(round_cat.body)
+		// Check if our aim vector intersects a pivot
+		// TODO: put aim range on rc
+		RAY_THICKNESS :: 0.5
+
+
+		if USE_PIVOTS {
+			for pivot in pivots {
+				if ray_intersects_circle_thick(rc_pos, round_cat.aim_direction, round_cat.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
+					round_cat_make_distance_joint(round_cat, pivot.body, physics_world)
+					break
+				}
+			}
+		} else if round_cat.aim_direction != {} {
+			round_cat.pivot = pivot_make(rc_pos + round_cat.aim_direction * round_cat.aim_range, 2.0)
+			round_cat_make_distance_joint(round_cat, round_cat.pivot.body, physics_world)
+		}
+	
+	} else {
+		b2.DestroyJoint(round_cat.distance_joint)
+		round_cat.distance_joint_pivot_id = {}
+
+		if !USE_PIVOTS {
+			b2.DestroyBody(round_cat.pivot.body)
+			round_cat.pivot = {}
+		}
+	}
+}
+
 round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(rc.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
@@ -227,9 +278,8 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		}
 	}
 
-	deadzone :: 0.1
+	/*
 	// Apply force in WASD direction controls
-
 	dir : Vec2 = USE_JETS ? proc() -> Vec2 {
 		result : Vec2
 		if keyboard_is_key_pressed(g_keyboard, .W) {
@@ -252,6 +302,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		
 		return la.normalize0(result)
 	}() : Vec2{0.0, 0.0}
+	*/
 	
 	MAX_VERTICAL_JET :: 3
 	MAX_HORIZONTAL_JET :: 3
@@ -275,57 +326,6 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	//force : f32 = 200.0
 	//jet_count := math.abs(rc.jet_horizontal_count) + math.abs(rc.jet_vertical_count)
 	//b2.Body_ApplyForceToCenter(rc.body, force*f32(jet_count)*dir, true)
-	
-	force : f32 = 400.0
-	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
-	
-	aim_joystick_left := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTX) : gamepad_axis_normalize(g_gamepad, .LEFTX)
-	aim_joystick_right := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0 : gamepad_axis_normalize(g_gamepad, .LEFTY) * -1.0 // Invert
-	aim_joystick_left = apply_deadzone(deadzone, aim_joystick_left)
-	aim_joystick_right = apply_deadzone(deadzone, aim_joystick_right)
-	rc.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
-	if la.length(rc.aim_direction) > 1 {
-		rc.aim_direction = la.normalize0(rc.aim_direction)
-	}
-
-	
-	if gamepad_is_button_pressed(g_gamepad, .SOUTH) {
-		// TODO: Bool instead of comparing to zero struct?
-		if rc.distance_joint_pivot_id == {} {
-			rc_pos := body_pos(rc.body)
-			// Check if our aim vector intersects a pivot
-			// TODO: put aim range on rc
-			RAY_THICKNESS :: 0.5
-
-
-			if USE_PIVOTS {
-				for pivot in pivots {
-					if ray_intersects_circle_thick(rc_pos, rc.aim_direction, rc.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
-						round_cat_make_distance_joint(rc, pivot.body, physics_world)
-						break
-					}
-				}
-			} else if rc.aim_direction != {} {
-				rc.pivot = pivot_make(rc_pos + rc.aim_direction * rc.aim_range, 2.0)
-				round_cat_make_distance_joint(rc, rc.pivot.body, physics_world)
-			}
-		
-		} else {
-			b2.DestroyJoint(rc.distance_joint)
-			rc.distance_joint_pivot_id = {}
-
-			if !USE_PIVOTS {
-				b2.DestroyBody(rc.pivot.body)
-				rc.pivot = {}
-			}
-		}
-	}
-
-	max_velocity :: 75.0
-	current_velocity := b2.Body_GetLinearVelocity(rc.body)
-	if la.length(current_velocity) > max_velocity {
-		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)
-	}
 
 	rc.render_state.prev_transform = rc.render_state.curr_transform
 	rc.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(rc.body)

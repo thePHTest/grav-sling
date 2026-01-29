@@ -11,6 +11,7 @@ import "core:fmt"
 import "core:log"
 import "core:c"
 //import "core:math"
+import la "core:math/linalg"
 import "core:mem"
 import "core:strings"
 
@@ -113,24 +114,40 @@ physics_world :: proc() -> b2.WorldId {
 }
 
 Game_Command_Kind :: enum {
+	Aim,
 	Move,
 	PivotOnOff,
 }
 
 Game_Command :: struct {
-
+	kind : Game_Command_Kind,
+	val : Vec2,
 }
 
 Game_Commands :: struct {
-	commands : [dynamic]Command
+	commands : [dynamic]Game_Command,
 }
+g_game_commands : Game_Commands
 
-game_commands_generate :: proc() -> Game_Commands {
+game_commands_generate :: proc(frame_tick_num: int, game_commands : ^Game_Commands){
+	if frame_tick_num == 0 && gamepad_is_button_pressed(g_gamepad, .SOUTH) {
+		append(&game_commands.commands, Game_Command{.PivotOnOff, {}})
+	}
 
+	deadzone :: 0.1
+	left_joystick_x :=  apply_deadzone(deadzone, gamepad_axis_normalize(g_gamepad, .LEFTX))
+	left_joystick_y :=  apply_deadzone(deadzone, gamepad_axis_normalize(g_gamepad, .LEFTY) * -1)
+	right_joystick_x := apply_deadzone(deadzone, gamepad_axis_normalize(g_gamepad, .RIGHTX))
+	right_joystick_y := apply_deadzone(deadzone, gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1)
+
+	left_joystick := Vec2{left_joystick_x, left_joystick_y}
+	right_joystick := Vec2{right_joystick_x, right_joystick_y}
+
+	append(&game_commands.commands, Game_Command{.Aim, right_joystick})
+	append(&game_commands.commands, Game_Command{.Move, la.normalize0(left_joystick)})
 }
 
 poll_input :: proc() {
-
 	// Reset pressed/released
 	g_gamepad.buttons_pressed = {}
 	g_gamepad.buttons_released = {}
@@ -182,6 +199,8 @@ poll_input :: proc() {
 		}
 	}
 
+
+	// TODO: Do we want this at all? shouldn't be in poll_input. Can't put it in the update tick either atm I think
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
 	if .MINIMIZED in sdl.GetWindowFlags(g_window) {
 		sdl.Delay(10)
@@ -192,46 +211,28 @@ poll_input :: proc() {
 show_demo_window := true
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
-update :: proc(t: f64, dt: f64) {
-	/*
-	dt = rl.GetFrameTime()
-	real_dt = dt
-
-	if rl.IsKeyPressed(.ENTER) && rl.IsKeyDown(.LEFT_ALT) {
-		rl.ToggleBorderlessWindowed()
-	}
-
-	if rl.IsKeyPressed(.ESCAPE) {
-		// TODO: Menu
-	}
-
-	if g_mem.finished {
-		return
-	}
-
-	if g_mem.won {
-		dt = 0
-
-		if rl.IsMouseButtonPressed(.LEFT) && rl.GetTime() > g_mem.won_at + 0.5 {
-			g_mem.won = false
-		}
-		return
-	}
-
-	g_mem.time_accumulator += dt
-
-	PHYSICS_STEP :: 1/60.0
-
-	for g_mem.time_accumulator >= PHYSICS_STEP {
-		b2.World_Step(physics_world(), PHYSICS_STEP, 4)	
-		g_mem.time_accumulator -= PHYSICS_STEP
-	}
-
-	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
-	*/
-
+update :: proc(tick_num : int, frame_num : int, frame_tick_num : int, t: f64, dt: f64) {
+	game_commands_generate(frame_tick_num, &g_game_commands)
+	apply_commands(&g_game_commands)
 	b2.World_Step(physics_world(), f32(dt), 4)	
 	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
+	clear(&g_game_commands.commands)
+}
+
+apply_commands :: proc(game_commands : ^Game_Commands) {
+	for &game_command in game_commands.commands {
+		switch game_command.kind {
+		case .Aim: {
+			round_cat_apply_command_aim(&g_mem.rc, game_command)
+		}
+		case .Move: {
+			round_cat_apply_command_move(&g_mem.rc, game_command)
+		}
+		case .PivotOnOff: {
+			round_cat_apply_command_pivot_on_off(&g_mem.rc, g_mem.pivots, g_mem.physics_world, game_command)
+		}
+		}
+	}
 }
 
 Collision_Category :: enum u32 {
