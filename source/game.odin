@@ -112,23 +112,6 @@ physics_world :: proc() -> b2.WorldId {
 	return g_mem.physics_world
 }
 
-Game_Command_Kind :: enum {
-	Move,
-	PivotOnOff,
-}
-
-Game_Command :: struct {
-
-}
-
-Game_Commands :: struct {
-	commands : [dynamic]Command
-}
-
-game_commands_generate :: proc() -> Game_Commands {
-
-}
-
 poll_input :: proc() {
 
 	// Reset pressed/released
@@ -192,46 +175,13 @@ poll_input :: proc() {
 show_demo_window := true
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
-update :: proc(t: f64, dt: f64) {
-	/*
-	dt = rl.GetFrameTime()
-	real_dt = dt
-
-	if rl.IsKeyPressed(.ENTER) && rl.IsKeyDown(.LEFT_ALT) {
-		rl.ToggleBorderlessWindowed()
+update :: proc(sim_ctx : Sim_Ctx) {
+	if sim_ctx.frame_tick_num > 0 {
+		// TODO: Is this the best way to represent not pressed this tick?
+		g_gamepad.buttons_pressed = {}
 	}
-
-	if rl.IsKeyPressed(.ESCAPE) {
-		// TODO: Menu
-	}
-
-	if g_mem.finished {
-		return
-	}
-
-	if g_mem.won {
-		dt = 0
-
-		if rl.IsMouseButtonPressed(.LEFT) && rl.GetTime() > g_mem.won_at + 0.5 {
-			g_mem.won = false
-		}
-		return
-	}
-
-	g_mem.time_accumulator += dt
-
-	PHYSICS_STEP :: 1/60.0
-
-	for g_mem.time_accumulator >= PHYSICS_STEP {
-		b2.World_Step(physics_world(), PHYSICS_STEP, 4)	
-		g_mem.time_accumulator -= PHYSICS_STEP
-	}
-
-	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
-	*/
-
-	b2.World_Step(physics_world(), f32(dt), 4)	
-	round_cat_update(&g_mem.rc, g_mem.pivots, g_mem.physics_world)
+	b2.World_Step(physics_world(), f32(sim_ctx.dt), 4)	
+	round_cat_update(&g_mem.rc, sim_ctx, g_mem.pivots, g_mem.physics_world)
 }
 
 Collision_Category :: enum u32 {
@@ -287,12 +237,11 @@ render :: proc(alpha : f64) {
 	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 0, 255)
 	sdl.RenderClear(g_sdl_renderer)
 	world_render(game_cam, screen, alpha)
-	//im_render()
+	im_render()
 	sdl.RenderPresent(g_sdl_renderer)
 
 	//rl.EndMode2D()
 	//rl.BeginMode2D(ui_camera())
-
 
 	if g_mem.finished {
 		//rl.DrawTextEx(font, "YOU DID IT!! YOU FOUND\nTHE THREE MAGICAL\nTUNA CANS!!!\n\nGOOD BYE", {40, 40}, 20, 0, rl.WHITE)

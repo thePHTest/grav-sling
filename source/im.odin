@@ -18,40 +18,7 @@ im_render :: proc() {
 		im.ShowDemoWindow(&show_demo_window)
 	}
 
-	// 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-	{
-		f : f32 = 0.0
-		counter : int = 0
-
-		im.Begin("Hello, world!")                          // Create a window called "Hello, world!" and append into it.
-
-		im.Text("This is some useful text.")               // Display some text (you can use a format strings too)
-		im.Checkbox("Demo Window", &show_demo_window)      // Edit bools storing our window open/close state
-		im.Checkbox("Another Window", &show_another_window)
-
-		im.SliderFloat("float", &f, 0.0, 1.0)            // Edit 1 float using a slider from 0.0f to 1.0f
-		im.ColorEdit3("clear color", &clear_color) // Edit 3 floats representing a color
-
-		if im.Button("Button") {                           // Buttons return true when clicked (most widgets return true when edited/activated)
-			counter += 1
-		}
-		im.SameLine()
-		im.Text("counter = %d", counter)
-
-		io := im.GetIO()
-		im.Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0 / io.Framerate, io.Framerate)
-		im.End()
-	}
-
-	// 3. Show another simple window.
-	if show_another_window {
-		im.Begin("Another Window", &show_another_window)   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-		im.Text("Hello from another window!")
-		if im.Button("Close Me") {
-			show_another_window = false
-		}
-		im.End()
-	}
+	avatar_im_render(&g_mem.rc)
 
 	// Rendering
 	when RENDERER_SDL_GPU {
@@ -103,7 +70,7 @@ im_render :: proc() {
 		io := im.GetIO()
         sdl.SetRenderScale(g_sdl_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
         sdl.SetRenderDrawColorFloat(g_sdl_renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
-        sdl.RenderClear(g_sdl_renderer)
+        //sdl.RenderClear(g_sdl_renderer)
         ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_sdl_renderer)
 	}
 

@@ -15,9 +15,17 @@ game_poll_input :: proc() {
 	poll_input()
 }
 
+Sim_Ctx :: struct {
+	tick_num : u64,
+	frame_num : u64,
+	frame_tick_num : u64,
+	t : f64,
+	dt : f64,
+}
+
 @(export)
-game_update :: proc(t : f64, dt : f64) {
-	update(t, dt)
+game_update :: proc(tick_num : u64, frame_num : u64, frame_tick_num : u64, t : f64, dt : f64) {
+	update(Sim_Ctx{tick_num, frame_num, frame_tick_num, t, dt})
 }
 
 @(export)

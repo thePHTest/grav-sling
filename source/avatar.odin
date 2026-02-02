@@ -4,6 +4,7 @@ import b2 "box2d"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import im "deps:odin-imgui"
 import sdl "vendor:sdl3"
 import la "core:math/linalg"
 
@@ -12,12 +13,12 @@ _ :: math
 _ :: log
 
 USE_PIVOTS :: false
-USE_JETS :: true
 
 Render_State :: struct {
 	prev_transform : Transform,
 	curr_transform : Transform,
 }
+
 
 Rotation :: struct {
 	c, s: f32, // cosine and sine
@@ -46,6 +47,25 @@ Round_Cat :: struct {
 	distance_joint: b2.JointId,
 
 	render_state : Render_State,
+
+	// Editor vars
+	move_force : f32,
+	decel_force : f32,
+	density : f32,
+	max_velocity : f32,
+}
+
+avatar_im_render :: proc(rc : ^Round_Cat) {
+	im.Begin("Avatar Editor")
+	im.SliderFloat("Move force", &rc.move_force, 10.0, 4000.0)
+	im.SliderFloat("Decel force", &rc.decel_force, 0.0, 1000.0)
+	log.info("Body mass:", b2.Body_GetMass(rc.body))
+	if im.SliderFloat("Density", &rc.density, 0.0, 6.0) {
+		b2.Shape_SetDensity(rc.shape, rc.density)
+		b2.Body_ApplyMassFromShapes(rc.body)
+	}
+	im.SliderFloat("Max velocity", &rc.max_velocity, 5.0, 75.0)
+	im.End()
 }
 
 round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
@@ -54,25 +74,27 @@ round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 	bd.position = pos
 	// TODO: Instead of linearDamping, try using this for top down friction
 	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
-	bd.linearDamping = 0.3
-	bd.angularDamping = 0.7
+	bd.linearDamping = 0.0
+	//bd.angularDamping = 0.7
+	bd.fixedRotation = true
 	//bd.linearDamping = 0.0
 	//bd.angularDamping = 0.0
 	body := b2.CreateBody(g_mem.physics_world, bd)
 
 	sd := b2.DefaultShapeDef()
-	sd.density = 1.5
-	sd.friction = 0.3
-	sd.restitution = 0.0
+	DENSITY :: 1.45
+	sd.density = DENSITY
+	sd.friction = 0.0
+	sd.restitution = 0.2
 	sd.filter = {
 		categoryBits = u32(bit_set[Collision_Category] { .Round_Cat }),
 		maskBits = u32(bit_set[Collision_Category] { .Long_Cat, .Wall }),
 	}
 
 	capsule := b2.Capsule {
-		center1 = {0, -0.2},
-		center2 = {0, 0.2},
-		radius = 1,
+		center1 = {0, -0.5},
+		center2 = {0, 0.5},
+		radius = 0.25,
 	}
 
 	shape := b2.CreateCapsuleShape(body, sd, capsule)
@@ -83,6 +105,10 @@ round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 		body = body,
 		shape = shape,
 		aim_range = aim_range,
+		move_force = 400.0,
+		decel_force = 14.5,
+		density = DENSITY,
+		max_velocity = 45.0,
 	}
 }
 
@@ -214,7 +240,7 @@ round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, 
 	rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
-round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
+round_cat_update :: proc(rc: ^Round_Cat, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(rc.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
 	contact_data = b2.Body_GetContactData(rc.body, contact_data)
@@ -230,7 +256,7 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	deadzone :: 0.1
 	// Apply force in WASD direction controls
 
-	dir : Vec2 = USE_JETS ? proc() -> Vec2 {
+	dir : Vec2 = proc() -> Vec2 {
 		result : Vec2
 		if keyboard_is_key_pressed(g_keyboard, .W) {
 			result.y = 1.0
@@ -249,12 +275,9 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 			result.x = gamepad_axis_normalize(g_gamepad, .LEFTX)
 			result.x = apply_deadzone(deadzone, result.x)
 		}
-		
-		return la.normalize0(result)
-	}() : Vec2{0.0, 0.0}
-	
-	MAX_VERTICAL_JET :: 3
-	MAX_HORIZONTAL_JET :: 3
+
+		return result
+	}()
 	// Jet lash controls
 	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_UP) {
 	//	rc.jet_horizontal_count = 0
@@ -276,11 +299,11 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 	//jet_count := math.abs(rc.jet_horizontal_count) + math.abs(rc.jet_vertical_count)
 	//b2.Body_ApplyForceToCenter(rc.body, force*f32(jet_count)*dir, true)
 	
-	force : f32 = 400.0
-	b2.Body_ApplyForceToCenter(rc.body, force*dir, true)
+	b2.Body_ApplyForceToCenter(rc.body, rc.move_force*dir, true)
+	//b2.Body_ApplyLinearImpulseToCenter(rc.body, rc.move_force*dir, true)
 	
-	aim_joystick_left := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTX) : gamepad_axis_normalize(g_gamepad, .LEFTX)
-	aim_joystick_right := USE_JETS ? gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0 : gamepad_axis_normalize(g_gamepad, .LEFTY) * -1.0 // Invert
+	aim_joystick_left := gamepad_axis_normalize(g_gamepad, .RIGHTX)
+	aim_joystick_right := gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0 // Invert
 	aim_joystick_left = apply_deadzone(deadzone, aim_joystick_left)
 	aim_joystick_right = apply_deadzone(deadzone, aim_joystick_right)
 	rc.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
@@ -321,11 +344,21 @@ round_cat_update :: proc(rc: ^Round_Cat, pivots: [dynamic]Pivot, physics_world: 
 		}
 	}
 
-	max_velocity :: 75.0
 	current_velocity := b2.Body_GetLinearVelocity(rc.body)
-	if la.length(current_velocity) > max_velocity {
-		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * max_velocity)
+	current_speed := la.length2(current_velocity)
+	_ = current_speed
+	if la.length(current_velocity) > rc.max_velocity {
+		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * rc.max_velocity)
 	}
+
+	if gamepad_is_button_pressed(g_gamepad, .SOUTH) {
+		b2.Body_ApplyLinearImpulseToCenter(rc.body, la.normalize(current_velocity) * -1.0 * rc.move_force/2.0, true)
+	}
+
+	if dir == 0.0 {
+		b2.Body_ApplyForceToCenter(rc.body, current_velocity*-1.0*rc.decel_force, true)
+	}
+
 
 	rc.render_state.prev_transform = rc.render_state.curr_transform
 	rc.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(rc.body)
