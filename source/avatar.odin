@@ -18,8 +18,6 @@ Render_State :: struct {
 	prev_transform : Transform,
 	curr_transform : Transform,
 }
-
-
 Rotation :: struct {
 	c, s: f32, // cosine and sine
 }
@@ -28,7 +26,7 @@ Transform :: struct {
 	rotation : Rotation,
 }
 
-Round_Cat :: struct {
+Avatar :: struct {
 	body: b2.BodyId,
 	shape: b2.ShapeId,
 	squish_amount: f32,
@@ -55,20 +53,20 @@ Round_Cat :: struct {
 	max_velocity : f32,
 }
 
-avatar_im_render :: proc(rc : ^Round_Cat) {
+avatar_im_render :: proc(avatar : ^Avatar) {
 	im.Begin("Avatar Editor")
-	im.SliderFloat("Move force", &rc.move_force, 10.0, 4000.0)
-	im.SliderFloat("Decel force", &rc.decel_force, 0.0, 1000.0)
-	log.info("Body mass:", b2.Body_GetMass(rc.body))
-	if im.SliderFloat("Density", &rc.density, 0.0, 6.0) {
-		b2.Shape_SetDensity(rc.shape, rc.density)
-		b2.Body_ApplyMassFromShapes(rc.body)
+	im.SliderFloat("Move force", &avatar.move_force, 10.0, 4000.0)
+	im.SliderFloat("Decel force", &avatar.decel_force, 0.0, 1000.0)
+	if im.SliderFloat("Density", &avatar.density, 0.0, 6.0) {
+		b2.Shape_SetDensity(avatar.shape, avatar.density)
+		b2.Body_ApplyMassFromShapes(avatar.body)
 	}
-	im.SliderFloat("Max velocity", &rc.max_velocity, 5.0, 75.0)
+	im.Text(fmt.ctprint("Body mass:", b2.Body_GetMass(avatar.body)))
+	im.SliderFloat("Max velocity", &avatar.max_velocity, 5.0, 75.0)
 	im.End()
 }
 
-round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
+avatar_make :: proc(pos: Vec2, aim_range: f32) -> Avatar {
 	bd := b2.DefaultBodyDef()
 	bd.type = .dynamicBody
 	bd.position = pos
@@ -76,24 +74,24 @@ round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
 	bd.linearDamping = 0.0
 	//bd.angularDamping = 0.7
-	bd.fixedRotation = true
+	bd.fixedRotation = false
 	//bd.linearDamping = 0.0
 	//bd.angularDamping = 0.0
 	body := b2.CreateBody(g_mem.physics_world, bd)
 
 	sd := b2.DefaultShapeDef()
-	DENSITY :: 1.45
+	DENSITY :: 1.00
 	sd.density = DENSITY
 	sd.friction = 0.0
 	sd.restitution = 0.2
 	sd.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Round_Cat }),
-		maskBits = u32(bit_set[Collision_Category] { .Long_Cat, .Wall }),
+		categoryBits = u32(bit_set[Collision_Category] { .Avatar }),
+		maskBits = u32(bit_set[Collision_Category] { .Wall }),
 	}
 
 	capsule := b2.Capsule {
-		center1 = {0, -0.5},
-		center2 = {0, 0.5},
+		center1 = {0, -0.25},
+		center2 = {0, 0.25},
 		radius = 0.25,
 	}
 
@@ -112,8 +110,8 @@ round_cat_make :: proc(pos: Vec2, aim_range: f32) -> Round_Cat {
 	}
 }
 
-round_cat_pos :: proc(rc: Round_Cat) -> Vec2 {
-	return body_pos(rc.body)
+avatar_pos :: proc(avatar: Avatar) -> Vec2 {
+	return body_pos(avatar.body)
 }
 
 
@@ -130,32 +128,31 @@ smoothstart5 :: proc(t: f32) -> f32 {
 	return t * t * t * t * t
 }
 
-round_cat_render :: proc(rc: Round_Cat, camera : Camera2D, screen : Vec2, alpha : f64) {
-	//a := b2.Rot_GetAngle(b2.Body_GetRotation(rc.body))
-	//source := atlas_textures[.Round_Cat].rect
-	//pos := body_pos(rc.body)
-	//dest := draw_dest_rect(pos, source)
+avatar_render :: proc(avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : f64) {
+	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 255, 255)
+	capsule_shape := b2.Shape_GetCapsule(avatar.shape)
+	//width := capsule_shape.radius * 2.0
+	//height := la.distance(capsule_shape.center1, capsule_shape.center2) + capsule_shape.radius*2.0
+	//render_rect(avatar.render_state, width, height, camera, screen, alpha)
 
-	//rl.DrawTexturePro(atlas, source, dest, {dest.width/2, dest.height/2}, -a*rl.RAD2DEG, rl.WHITE)
-	
+	render_capsule(avatar.render_state, capsule_shape, camera, screen, alpha)
 
 	// Try sdl rect render
-	source := atlas_textures[.Round_Cat].rect
-	dest := draw_dest_rect(rc.render_state, source, camera, screen, alpha)
-	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 255, 255)
-	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&dest)
+	//source := atlas_textures[.Avatar].rect
+	//dest := draw_dest_rect(avatar.render_state, source, camera, screen, alpha)
+	//sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&dest)
 
-	pos := body_pos(rc.body)
-	aim_pos := pos + rc.aim_range * rc.aim_direction
+	pos := body_pos(avatar.body)
+	aim_pos := pos + avatar.aim_range * avatar.aim_direction
 	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
 	render_line(pos, aim_pos, camera, screen)
-	if rc.distance_joint_pivot_id != {} {
-		pivot_pos := body_pos(rc.distance_joint_pivot_id)
+	if avatar.distance_joint_pivot_id != {} {
+		pivot_pos := body_pos(avatar.distance_joint_pivot_id)
 		render_line(pos, pivot_pos, camera, screen)
 	}
 
-	if rc.pivot.body != {} {
-		pivot_render(rc.pivot, camera, screen)
+	if avatar.pivot.body != {} {
+		pivot_render(avatar.pivot, camera, screen)
 	}
 
 
@@ -209,16 +206,16 @@ ray_intersects_circle_thick :: proc(
     return t0_sq <= max_t * max_t
 }
 
-round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, physics_world: b2.WorldId) {
+avatar_make_distance_joint :: proc(avatar: ^Avatar, other_body_id: b2.BodyId, physics_world: b2.WorldId) {
 	// Distance joint
 	joint_def := b2.DefaultDistanceJointDef()
-	joint_def.bodyIdA = rc.body
+	joint_def.bodyIdA = avatar.body
 	joint_def.bodyIdB = other_body_id
 
 	joint_def.localAnchorA = Vec2{0, 0}
 	joint_def.localAnchorB = Vec2{0, 0}
 
-	anchor_a := b2.Body_GetWorldPoint(rc.body, joint_def.localAnchorA)
+	anchor_a := b2.Body_GetWorldPoint(avatar.body, joint_def.localAnchorA)
 	anchor_b := b2.Body_GetWorldPoint(other_body_id, joint_def.localAnchorB)
 	joint_def.length = b2.Distance(anchor_a, anchor_b)
 	joint_def.enableLimit = true
@@ -236,14 +233,14 @@ round_cat_make_distance_joint :: proc(rc: ^Round_Cat, other_body_id: b2.BodyId, 
 	joint_def.motorSpeed = -40.0
 	joint_def.maxMotorForce = 10000.0
 
-	rc.distance_joint_pivot_id = other_body_id
-	rc.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
+	avatar.distance_joint_pivot_id = other_body_id
+	avatar.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
-round_cat_update :: proc(rc: ^Round_Cat, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
-	contact_cap := b2.Body_GetContactCapacity(rc.body)
+avatar_update :: proc(avatar: ^Avatar, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
+	contact_cap := b2.Body_GetContactCapacity(avatar.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
-	contact_data = b2.Body_GetContactData(rc.body, contact_data)
+	contact_data = b2.Body_GetContactData(avatar.body, contact_data)
 
 	for &c in contact_data {
 		vel := c.manifold.points[0].normalVelocity
@@ -280,86 +277,88 @@ round_cat_update :: proc(rc: ^Round_Cat, sim_ctx : Sim_Ctx, pivots: [dynamic]Piv
 	}()
 	// Jet lash controls
 	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_UP) {
-	//	rc.jet_horizontal_count = 0
-	//	rc.jet_vertical_count = clamp(rc.jet_vertical_count + 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET) 
+	//	avatar.jet_horizontal_count = 0
+	//	avatar.jet_vertical_count = clamp(avatar.jet_vertical_count + 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET) 
 	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_DOWN) {
-	//	rc.jet_horizontal_count = 0
-	//	rc.jet_vertical_count = clamp(rc.jet_vertical_count - 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET)
+	//	avatar.jet_horizontal_count = 0
+	//	avatar.jet_vertical_count = clamp(avatar.jet_vertical_count - 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET)
 	//}
 	//
 	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_LEFT) {
-	//	rc.jet_vertical_count = 0
-	//	rc.jet_horizontal_count = clamp(rc.jet_horizontal_count - 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
+	//	avatar.jet_vertical_count = 0
+	//	avatar.jet_horizontal_count = clamp(avatar.jet_horizontal_count - 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
 	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_RIGHT) {
-	//	rc.jet_vertical_count = 0
-	//	rc.jet_horizontal_count = clamp(rc.jet_horizontal_count + 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
+	//	avatar.jet_vertical_count = 0
+	//	avatar.jet_horizontal_count = clamp(avatar.jet_horizontal_count + 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
 	//}
-	//dir := la.normalize0(Vec2{f32(math.sign(rc.jet_horizontal_count)), f32(math.sign(rc.jet_vertical_count))})
+	//dir := la.normalize0(Vec2{f32(math.sign(avatar.jet_horizontal_count)), f32(math.sign(avatar.jet_vertical_count))})
 	//force : f32 = 200.0
-	//jet_count := math.abs(rc.jet_horizontal_count) + math.abs(rc.jet_vertical_count)
-	//b2.Body_ApplyForceToCenter(rc.body, force*f32(jet_count)*dir, true)
+	//jet_count := math.abs(avatar.jet_horizontal_count) + math.abs(avatar.jet_vertical_count)
+	//b2.Body_ApplyForceToCenter(avatar.body, force*f32(jet_count)*dir, true)
 	
-	b2.Body_ApplyForceToCenter(rc.body, rc.move_force*dir, true)
-	//b2.Body_ApplyLinearImpulseToCenter(rc.body, rc.move_force*dir, true)
+	b2.Body_ApplyForceToCenter(avatar.body, avatar.move_force*dir, true)
+	//b2.Body_ApplyLinearImpulseToCenter(avatar.body, avatar.move_force*dir, true)
 	
 	aim_joystick_left := gamepad_axis_normalize(g_gamepad, .RIGHTX)
 	aim_joystick_right := gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0 // Invert
 	aim_joystick_left = apply_deadzone(deadzone, aim_joystick_left)
 	aim_joystick_right = apply_deadzone(deadzone, aim_joystick_right)
-	rc.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
-	if la.length(rc.aim_direction) > 1 {
-		rc.aim_direction = la.normalize0(rc.aim_direction)
+	avatar.aim_direction = Vec2{aim_joystick_left, aim_joystick_right}
+	if la.length(avatar.aim_direction) > 1 {
+		avatar.aim_direction = la.normalize0(avatar.aim_direction)
 	}
 
 	
 	if gamepad_is_button_pressed(g_gamepad, .SOUTH) {
 		// TODO: Bool instead of comparing to zero struct?
-		if rc.distance_joint_pivot_id == {} {
-			rc_pos := body_pos(rc.body)
+		if avatar.distance_joint_pivot_id == {} {
+			avatar_pos := body_pos(avatar.body)
 			// Check if our aim vector intersects a pivot
-			// TODO: put aim range on rc
+			// TODO: put aim range on avatar
 			RAY_THICKNESS :: 0.5
 
 
 			if USE_PIVOTS {
 				for pivot in pivots {
-					if ray_intersects_circle_thick(rc_pos, rc.aim_direction, rc.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
-						round_cat_make_distance_joint(rc, pivot.body, physics_world)
+					if ray_intersects_circle_thick(avatar_pos, avatar.aim_direction, avatar.aim_range, pivot.pos, pivot.radius, RAY_THICKNESS) {
+						avatar_make_distance_joint(avatar, pivot.body, physics_world)
 						break
 					}
 				}
-			} else if rc.aim_direction != {} {
-				rc.pivot = pivot_make(rc_pos + rc.aim_direction * rc.aim_range, 2.0)
-				round_cat_make_distance_joint(rc, rc.pivot.body, physics_world)
+			} else if avatar.aim_direction != {} {
+				avatar.pivot = pivot_make(avatar_pos + avatar.aim_direction * avatar.aim_range, 2.0)
+				avatar_make_distance_joint(avatar, avatar.pivot.body, physics_world)
 			}
 		
 		} else {
-			b2.DestroyJoint(rc.distance_joint)
-			rc.distance_joint_pivot_id = {}
+			b2.DestroyJoint(avatar.distance_joint)
+			avatar.distance_joint_pivot_id = {}
 
 			if !USE_PIVOTS {
-				b2.DestroyBody(rc.pivot.body)
-				rc.pivot = {}
+				b2.DestroyBody(avatar.pivot.body)
+				avatar.pivot = {}
 			}
 		}
 	}
 
-	current_velocity := b2.Body_GetLinearVelocity(rc.body)
+	current_velocity := b2.Body_GetLinearVelocity(avatar.body)
 	current_speed := la.length2(current_velocity)
 	_ = current_speed
-	if la.length(current_velocity) > rc.max_velocity {
-		b2.Body_SetLinearVelocity(rc.body, la.normalize(current_velocity) * rc.max_velocity)
+	if la.length(current_velocity) > avatar.max_velocity {
+		b2.Body_SetLinearVelocity(avatar.body, la.normalize(current_velocity) * avatar.max_velocity)
 	}
 
 	if gamepad_is_button_pressed(g_gamepad, .SOUTH) {
-		b2.Body_ApplyLinearImpulseToCenter(rc.body, la.normalize(current_velocity) * -1.0 * rc.move_force/2.0, true)
+		b2.Body_ApplyLinearImpulseToCenter(avatar.body, la.normalize(current_velocity) * -1.0 * avatar.move_force/2.0, true)
 	}
 
 	if dir == 0.0 {
-		b2.Body_ApplyForceToCenter(rc.body, current_velocity*-1.0*rc.decel_force, true)
+		b2.Body_ApplyForceToCenter(avatar.body, current_velocity*-1.0*avatar.decel_force, true)
+		// Could try to dampen like this, but it should take dt into account
+		//b2.Body_SetLinearVelocity(avatar.body, current_velocity*0.98)
 	}
 
 
-	rc.render_state.prev_transform = rc.render_state.curr_transform
-	rc.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(rc.body)
+	avatar.render_state.prev_transform = avatar.render_state.curr_transform
+	avatar.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(avatar.body)
 }

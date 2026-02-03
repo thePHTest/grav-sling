@@ -36,8 +36,7 @@ Pivot :: struct {
 Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
-	rc: Round_Cat,
-	//atlas: rl.Texture2D,
+	avatar: Avatar,
 	
 	pivots: [dynamic]Pivot,
 	
@@ -52,9 +51,10 @@ Game_Memory :: struct {
 	won_at: f64,
 
 	finished: bool,
+
+
 	//font: rl.Font,
-
-
+	//atlas: rl.Texture2D,
 	// sounds
 	//hit_sound: rl.Sound,
 	//land_sound: rl.Sound,
@@ -89,7 +89,7 @@ game_camera :: proc() -> Camera2D {
 	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = 10.0,
+		zoom = 20.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
@@ -172,7 +172,7 @@ poll_input :: proc() {
 	}
 }
 
-show_demo_window := true
+show_demo_window := false
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc(sim_ctx : Sim_Ctx) {
@@ -181,13 +181,12 @@ update :: proc(sim_ctx : Sim_Ctx) {
 		g_gamepad.buttons_pressed = {}
 	}
 	b2.World_Step(physics_world(), f32(sim_ctx.dt), 4)	
-	round_cat_update(&g_mem.rc, sim_ctx, g_mem.pivots, g_mem.physics_world)
+	avatar_update(&g_mem.avatar, sim_ctx, g_mem.pivots, g_mem.physics_world)
 }
 
 Collision_Category :: enum u32 {
 	Wall,
-	Long_Cat,
-	Round_Cat,
+	Avatar,
 	Pivot,
 }
 
@@ -209,7 +208,10 @@ world_render :: proc(camera : Camera2D, screen : Vec2, alpha : f64) {
 	origin_screen_rect := rect_world_to_screen(Rect{-0.5*origin_dim, -0.5*origin_dim, origin_dim, origin_dim}, camera, screen)
 	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&origin_screen_rect)
 
-	round_cat_render(g_mem.rc, camera, screen, alpha)
+	render_circle_filled({}, 1.0, camera, screen)
+
+
+	avatar_render(g_mem.avatar, camera, screen, alpha)
 	wall_render(g_mem.left_wall, camera, screen)
 	wall_render(g_mem.right_wall, camera, screen)
 	wall_render(g_mem.top_wall, camera, screen)
@@ -325,13 +327,13 @@ when ODIN_DEBUG {
 	io.ConfigFlags += {.DockingEnable}
 	io.ConfigFlags += {.ViewportsEnable}
 
-	// Setup Deaf ImGui style
+	// Setup Dear ImGui style
 	im.StyleColorsDark()
 
 	// Setup scaling
 	style := im.GetStyle()
-	im.Style_ScaleAllSizes(style, main_scale)
-	style.FontScaleDpi = main_scale
+	//im.Style_ScaleAllSizes(style, main_scale)
+	//style.FontScaleDpi = main_scale
 	io.ConfigDpiScaleFonts = true
 	io.ConfigDpiScaleViewports = true
 
@@ -537,7 +539,7 @@ init :: proc() {
 	world_def.enableContinous = true
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
-	g_mem.rc = round_cat_make({10,10}, 30.0)
+	g_mem.avatar = avatar_make({10,10}, 30.0)
 
 	game_hot_reloaded(g_mem)
 	
@@ -578,7 +580,7 @@ wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	shape_def.friction = 0.7
 	shape_def.filter = {
 		categoryBits = u32(bit_set[Collision_Category] { .Wall }),
-		maskBits = u32(bit_set[Collision_Category] { .Round_Cat, .Long_Cat }),
+		maskBits = u32(bit_set[Collision_Category] { .Avatar }),
 	}
 
 	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)
@@ -600,7 +602,7 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 	shape_def.friction = 0.7
 	shape_def.filter = {
 		categoryBits = u32(bit_set[Collision_Category] { .Pivot }),
-		//maskBits = u32(bit_set[Collision_Category] { .Round_Cat, .Long_Cat }),
+		//maskBits = u32(bit_set[Collision_Category] { .Avatar }),
 	}
 
 	pivot.shape = b2.CreateCircleShape(pivot.body, shape_def, circle)

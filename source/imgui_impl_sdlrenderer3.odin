@@ -270,7 +270,7 @@ ImGui_ImplSDLRenderer3_UpdateTexture :: proc(tex : ^im.TextureData) {
         // This backend choose to use tex->Updates[] but you can use tex->UpdateRect to upload a single region.
 		sdl_texture := cast(^sdl.Texture)cast(uintptr)tex.TexID
 
-        for update_idx : i32 = 1; update_idx < tex.Updates.Size; update_idx += 1 {
+        for update_idx : i32 = 0; update_idx < tex.Updates.Size; update_idx += 1 {
 			r := &(cast([^]im.TextureRect)tex.Updates.Data)[update_idx]
             sdl_r := sdl.Rect{ i32(r.x), i32(r.y), i32(r.w), i32(r.h) }
             sdl.UpdateTexture(sdl_texture, &sdl_r, im.TextureData_GetPixelsAt(tex, i32(r.x), i32(r.y)), im.TextureData_GetPitch(tex))

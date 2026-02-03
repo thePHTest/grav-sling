@@ -18,7 +18,7 @@ im_render :: proc() {
 		im.ShowDemoWindow(&show_demo_window)
 	}
 
-	avatar_im_render(&g_mem.rc)
+	avatar_im_render(&g_mem.avatar)
 
 	// Rendering
 	when RENDERER_SDL_GPU {
