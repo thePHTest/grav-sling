@@ -52,6 +52,14 @@ Game_Memory :: struct {
 
 	finished: bool,
 
+	// TODO: Can't use when here
+//when RENDERER_SDL_GPU {
+//gpu_device: ^sdl.GPUDevice
+//} else {
+//sdl_renderer: ^sdl.Renderer
+//}
+	renderer : ^sdl.Renderer,
+	window : ^sdl.Window,
 
 	//font: rl.Font,
 	//atlas: rl.Texture2D,
@@ -61,20 +69,14 @@ Game_Memory :: struct {
 	//win_sound: rl.Sound,
 }
 
-//atlas: rl.Texture2D
 g_context : runtime.Context
 g_mem: ^Game_Memory
-g_window: ^sdl.Window
-when RENDERER_SDL_GPU {
-g_gpu_device: ^sdl.GPUDevice
-} else {
-g_sdl_renderer: ^sdl.Renderer
-}
-//font: rl.Font
 
-refresh_globals :: proc() {
+on_hot_reload :: proc() {
+	g_context = context
 	//atlas = g_mem.atlas
 	//font = g_mem.font
+	im_init()
 }
 
 Camera2D :: struct {
@@ -97,7 +99,7 @@ game_camera :: proc() -> Camera2D {
 
 get_screen :: proc() -> Vec2 {
 	w, h : i32
-	sdl.GetWindowSizeInPixels(g_window, &w, &h)
+	sdl.GetWindowSizeInPixels(g_mem.window, &w, &h)
 	return Vec2{f32(w), f32(h)}
 }
 
@@ -129,7 +131,7 @@ poll_input :: proc() {
 		ImGui_ImplSDL3_ProcessEvent(&event)
 		if event.type == .QUIT {
 		}
-		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_window) {
+		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_mem.window) {
 		}
 
 		#partial switch event.type {
@@ -166,7 +168,7 @@ poll_input :: proc() {
 	}
 
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
-	if .MINIMIZED in sdl.GetWindowFlags(g_window) {
+	if .MINIMIZED in sdl.GetWindowFlags(g_mem.window) {
 		sdl.Delay(10)
 		return
 	}
@@ -192,8 +194,8 @@ Collision_Category :: enum u32 {
 
 wall_render :: proc(wall : Wall, camera : Camera2D, screen : Vec2) {
 	screen_rect := rect_world_to_screen(wall.rect, camera, screen)
-	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 255, 0, 255)
-	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&screen_rect)
+	sdl.SetRenderDrawColor(g_mem.renderer, 0, 255, 0, 255)
+	sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&screen_rect)
 }
 
 pivot_render :: proc(pivot: Pivot, camera : Camera2D, screen : Vec2) {
@@ -201,13 +203,7 @@ pivot_render :: proc(pivot: Pivot, camera : Camera2D, screen : Vec2) {
 }
 
 world_render :: proc(camera : Camera2D, screen : Vec2, alpha : f64) {
-
 	// Draw the origin
-	sdl.SetRenderDrawColor(g_sdl_renderer, 255, 0, 0, 255)
-	origin_dim :: 1.0
-	origin_screen_rect := rect_world_to_screen(Rect{-0.5*origin_dim, -0.5*origin_dim, origin_dim, origin_dim}, camera, screen)
-	sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&origin_screen_rect)
-
 	render_circle_filled({}, 1.0, camera, screen)
 
 
@@ -236,11 +232,11 @@ render :: proc(alpha : f64) {
 	//rl.ClearBackground({0, 120, 153, 255})
 	//rl.BeginMode2D(game_cam)
 
-	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 0, 255)
-	sdl.RenderClear(g_sdl_renderer)
+	sdl.SetRenderDrawColor(g_mem.renderer, 0, 0, 0, 255)
+	sdl.RenderClear(g_mem.renderer)
 	world_render(game_cam, screen, alpha)
 	im_render()
-	sdl.RenderPresent(g_sdl_renderer)
+	sdl.RenderPresent(g_mem.renderer)
 
 	//rl.EndMode2D()
 	//rl.BeginMode2D(ui_camera())
@@ -305,7 +301,7 @@ Im_Context :: struct {
 	allocator : mem.Allocator,
 }
 
-im_init :: proc(main_scale : f32) {
+im_init :: proc() {
 /*
 when ODIN_DEBUG {
 	g_im_context.allocator = runtime.default_allocator()
@@ -317,9 +313,11 @@ when ODIN_DEBUG {
 	context.allocator = tracking_allocator
 }
 */
+
+	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
 	// Setup Dear ImGui context
 	im.CHECKVERSION()
-	im.SetAllocatorFunctions(im_mem_alloc_func, im_mem_free_func)
+	//im.SetAllocatorFunctions(im_mem_alloc_func, im_mem_free_func)
 	im.CreateContext()
 	io := im.GetIO()
 	io.ConfigFlags += {.NavEnableKeyboard}
@@ -332,8 +330,8 @@ when ODIN_DEBUG {
 
 	// Setup scaling
 	style := im.GetStyle()
-	//im.Style_ScaleAllSizes(style, main_scale)
-	//style.FontScaleDpi = main_scale
+	im.Style_ScaleAllSizes(style, main_scale)
+	style.FontScaleDpi = main_scale
 	io.ConfigDpiScaleFonts = true
 	io.ConfigDpiScaleViewports = true
 
@@ -345,17 +343,17 @@ when ODIN_DEBUG {
 
 	when RENDERER_SDL_GPU {
 		// Setup Platform/Renderer backends
-		ImGui_ImplSDL3_InitForSDLGPU(g_window)
+		ImGui_ImplSDL3_InitForSDLGPU(g_mem.window)
 		init_info : ImGui_ImplSDLGPU3_InitInfo
 		init_info.device = g_gpu_device
-		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_window)
+		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_mem.window)
 		init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
 		init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
 		init_info.present_mode = .VSYNC
 		ImGui_ImplSDLGPU3_Init(&init_info)
 	} else {
-		ImGui_ImplSDL3_InitForSDLRenderer(g_window, g_sdl_renderer)
-		ImGui_ImplSDLRenderer3_Init(g_sdl_renderer)
+		ImGui_ImplSDL3_InitForSDLRenderer(g_mem.window, g_mem.renderer)
+		ImGui_ImplSDLRenderer3_Init(g_mem.renderer)
 	}
 
 	// Load Fonts
@@ -409,29 +407,30 @@ init_window :: proc() -> bool {
 
 	// TODO: proper handling of display scale
 	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
+	_ = main_scale
 	window_flags := sdl.WindowFlags{.RESIZABLE, .HIDDEN, .HIGH_PIXEL_DENSITY}
 
 	// TODO: Proper window size settings
 	// TODO: Proper indow flags setting
-	//g_window = sdl.CreateWindow(GAME_TITLE, i32(1920 * main_scale), i32(1080 * main_scale), window_flags)
-	g_window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
-	if g_window == nil {
+	//g_mem.window = sdl.CreateWindow(GAME_TITLE, i32(1920 * main_scale), i32(1080 * main_scale), window_flags)
+	g_mem.window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
+	if g_mem.window == nil {
 		log.error("sdl.CreateWindow() failed:", sdl.GetError())
 		return false
 	}
 	log.info("init sdl and window success")
 
 	when !RENDERER_SDL_GPU {
-		g_sdl_renderer = sdl.CreateRenderer(g_window, nil)
-		sdl.SetRenderVSync(g_sdl_renderer, 1)
-		if g_sdl_renderer == nil {
+		g_mem.renderer = sdl.CreateRenderer(g_mem.window, nil)
+		sdl.SetRenderVSync(g_mem.renderer, 1)
+		if g_mem.renderer == nil {
 			log.error("Error: SDL_CreateRenderer(): %s\n", sdl.GetError())
 			return false
 		}
 	}
 
-	sdl.SetWindowPosition(g_window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-	sdl.ShowWindow(g_window)
+	sdl.SetWindowPosition(g_mem.window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
+	sdl.ShowWindow(g_mem.window)
 
 	when RENDERER_SDL_GPU {
 		// TODO: This following stuff should maybe be moved to init instead? Depends on what is needed for hot reload
@@ -444,19 +443,17 @@ init_window :: proc() -> bool {
 		}
 
 		// Claim window for GPU Device
-		if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_window) {
+		if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_mem.window) {
 			log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
 			return false
 		}
 
-		if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_window, .SDR, .VSYNC) {
+		if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_mem.window, .SDR, .VSYNC) {
 			log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
 			// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
 			return false
 		}
 	}
-
-	im_init(main_scale)
 
 	log.info("init_window finished")
 	return true
@@ -541,7 +538,7 @@ init :: proc() {
 	
 	g_mem.avatar = avatar_make({10,10}, 30.0)
 
-	game_hot_reloaded(g_mem)
+	game_on_hot_reload(g_mem)
 	
 	field_width ::  190
 	field_height :: 106 
@@ -636,9 +633,9 @@ shutdown_window :: proc() {
 		im.DestroyContext()
 
 		// Shutdown sdl
-		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_window)
+		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_mem.window)
 		sdl.DestroyGPUDevice(g_gpu_device)
-		sdl.DestroyWindow(g_window)
+		sdl.DestroyWindow(g_mem.window)
 		sdl.Quit()
 	} else {
 		// Shutdown imgui
@@ -647,8 +644,8 @@ shutdown_window :: proc() {
 		im.DestroyContext()
 
 		// Shutdown sdl
-		sdl.DestroyRenderer(g_sdl_renderer)
-		sdl.DestroyWindow(g_window)
+		sdl.DestroyRenderer(g_mem.renderer)
+		sdl.DestroyWindow(g_mem.window)
 		sdl.Quit()
 	}
 	log.info("shutdown sdl and window complete")

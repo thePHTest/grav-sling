@@ -129,7 +129,7 @@ smoothstart5 :: proc(t: f32) -> f32 {
 }
 
 avatar_render :: proc(avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : f64) {
-	sdl.SetRenderDrawColor(g_sdl_renderer, 0, 0, 255, 255)
+	sdl.SetRenderDrawColor(g_mem.renderer, 0, 0, 255, 255)
 	capsule_shape := b2.Shape_GetCapsule(avatar.shape)
 	//width := capsule_shape.radius * 2.0
 	//height := la.distance(capsule_shape.center1, capsule_shape.center2) + capsule_shape.radius*2.0
@@ -140,7 +140,7 @@ avatar_render :: proc(avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : 
 	// Try sdl rect render
 	//source := atlas_textures[.Avatar].rect
 	//dest := draw_dest_rect(avatar.render_state, source, camera, screen, alpha)
-	//sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&dest)
+	//sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&dest)
 
 	pos := body_pos(avatar.body)
 	aim_pos := pos + avatar.aim_range * avatar.aim_direction

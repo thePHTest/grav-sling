@@ -70,7 +70,7 @@ render_rect :: proc(render_state : Render_State, width : f32, height : f32, came
 	if interpolated_transform.rot == 0.0 {
 		world_rect := render_transform_to_rect(interpolated_transform, width, height)
 		screen_rect := rect_world_to_screen(world_rect, camera, screen)
-		sdl.RenderFillRect(g_sdl_renderer, cast(^sdl.FRect)&screen_rect)
+		sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&screen_rect)
 	} else {
 		// Get the 4 corners
 		// TODO: Just store the quat on the Render_State transform. Avoid having to do extra cos and sin
@@ -110,12 +110,12 @@ render_rect :: proc(render_state : Render_State, width : f32, height : f32, came
 			0, 1, 2,
 			0, 2, 3,
 		}
-		sdl.RenderGeometry(g_sdl_renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+		sdl.RenderGeometry(g_mem.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 	}
 }
 
 render_line :: proc(a,b : Vec2, camera : Camera2D, screen : Vec2) {
-	sdl.RenderLine(g_sdl_renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
+	sdl.RenderLine(g_mem.renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
 camera, screen)))
 }
 
@@ -124,7 +124,7 @@ render_capsule :: proc(render_state : Render_State, capsule : b2.Capsule, camera
 	height := la.distance(capsule.center1, capsule.center2)
 	render_rect(render_state, width, height, camera, screen, alpha)
 
-	sdl.SetRenderDrawColorFloat(g_sdl_renderer, 0.7, 0.0, 0.7, 1.0)
+	sdl.SetRenderDrawColorFloat(g_mem.renderer, 0.7, 0.0, 0.7, 1.0)
 	interpolated_transform := render_state_interpolate(render_state, alpha)
 	rot_mat : matrix[2,2]f32 = {
 		m.cos(interpolated_transform.rot), m.sin(interpolated_transform.rot),
@@ -176,5 +176,5 @@ render_circle_filled :: proc(c : Vec2, r : f32, camera : Camera2D, screen : Vec2
 		indices[base + 2] = i32(idx + 2)
 	}
 
-	sdl.RenderGeometry(g_sdl_renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+	sdl.RenderGeometry(g_mem.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 }

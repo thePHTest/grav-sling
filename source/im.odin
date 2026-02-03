@@ -68,10 +68,10 @@ im_render :: proc() {
 	} else {
 		im.Render()
 		io := im.GetIO()
-        sdl.SetRenderScale(g_sdl_renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
-        sdl.SetRenderDrawColorFloat(g_sdl_renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
-        //sdl.RenderClear(g_sdl_renderer)
-        ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_sdl_renderer)
+        sdl.SetRenderScale(g_mem.renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
+        sdl.SetRenderDrawColorFloat(g_mem.renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
+        //sdl.RenderClear(g_mem.renderer)
+        ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_mem.renderer)
 	}
 
 
