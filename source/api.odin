@@ -1,6 +1,11 @@
 package game
 
 @(export)
+game_alloc_memory :: proc() {
+	alloc_memory()
+}
+
+@(export)
 game_init :: proc() {
 	init()
 }

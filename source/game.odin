@@ -73,10 +73,12 @@ g_context : runtime.Context
 g_mem: ^Game_Memory
 
 on_hot_reload :: proc() {
+	log.info("Start on_hot_reload()")
 	g_context = context
 	//atlas = g_mem.atlas
 	//font = g_mem.font
 	im_init()
+	log.info("End on_hot_reload()")
 }
 
 Camera2D :: struct {
@@ -115,7 +117,6 @@ physics_world :: proc() -> b2.WorldId {
 }
 
 poll_input :: proc() {
-
 	// Reset pressed/released
 	g_gamepad.buttons_pressed = {}
 	g_gamepad.buttons_released = {}
@@ -163,6 +164,7 @@ poll_input :: proc() {
 			case .KEY_DOWN:
 			fallthrough
 			case .KEY_UP:
+			log.info("key event")
 			g_keyboard.keys[EScancode(event.key.scancode)].pressed = event.key.down
 		}
 	}
@@ -373,6 +375,10 @@ when ODIN_DEBUG {
     //IM_ASSERT(font != nullptr);
 }
 
+alloc_memory :: proc() {
+	g_mem = new(Game_Memory)
+}
+
 init_window :: proc() -> bool {
 	g_context = context
 	log.info("init sdl and window...")
@@ -491,46 +497,7 @@ temp_cstring :: proc(s: string) -> cstring {
 
 init :: proc() {
 	fmt.println("init")
-	g_mem = new(Game_Memory)
-	//atlas_image := rl.LoadImageFromMemory(".png", raw_data(ATLAS_DATA), i32(len(ATLAS_DATA)))
 
-	g_mem^ = Game_Memory {
-		//atlas = rl.LoadTextureFromImage(atlas_image),
-		//hit_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(HIT_SOUND), i32(len(HIT_SOUND)))),
-		//land_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(LAND_SOUND), i32(len(LAND_SOUND)))),
-		//win_sound = rl.LoadSoundFromWave(rl.LoadWaveFromMemory(".wav", raw_data(WIN_SOUND), i32(len(WIN_SOUND)))),
-	}
-	
-	//rl.SetSoundVolume(g_mem.hit_sound, 0.5)
-	//rl.SetSoundVolume(g_mem.land_sound, 0.5)
-	//rl.SetSoundVolume(g_mem.win_sound, 0.3)
-
-	//rl.UnloadImage(atlas_image)
-
-	//num_glyphs := len(atlas_glyphs)
-	//font_rects := make([]Rect, num_glyphs)
-	//glyphs := make([]rl.GlyphInfo, num_glyphs)
-
-	//for ag, idx in atlas_glyphs {
-	//	
-	//	font_rects[idx] = ag.rect
-	//	glyphs[idx] = {
-	//		value = ag.value,
-	//		offsetX = i32(ag.offset_x),
-	//		offsetY = i32(ag.offset_y),
-	//		advanceX = i32(ag.advance_x),
-	//	}
-	//} 
-
-	//g_mem.font = {
-	//	baseSize = ATLAS_FONT_SIZE,
-	//	glyphCount = i32(num_glyphs),
-	//	glyphPadding = 0,
-	//	texture = g_mem.atlas,
-	//	recs = raw_data(font_rects),
-	//	glyphs = raw_data(glyphs),
-	//}
-	
 	world_def := b2.DefaultWorldDef()
 	world_def.gravity = GRAVITY
 	world_def.enableContinous = true

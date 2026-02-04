@@ -42,6 +42,7 @@ copy_dll :: proc(to: string) -> bool {
 
 Game_API :: struct {
 	lib: dynlib.Library,
+	alloc_memory : proc(),
 	init_window: proc(),
 	init: proc(),
 	poll_input : proc(),
@@ -100,6 +101,69 @@ unload_game_api :: proc(api: ^Game_API) {
 	}
 }
 
+game_hotload :: proc(game_api : ^Game_API, tracking_allocator: ^mem.Tracking_Allocator) -> bool {
+	force_reload := game_api.force_reload()
+	force_restart := game_api.force_restart()
+	reload := force_reload || force_restart
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
+
+	if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
+		reload = true
+	}
+
+	if reload {
+		new_game_api, new_game_api_ok := load_game_api(game_api.api_version + 1)
+
+		if new_game_api_ok {
+			force_restart = force_restart || game_api.memory_size() != new_game_api.memory_size()
+
+			if !force_restart {
+				// This does the normal hot reload
+
+				// Note that we don't unload the old game APIs because that
+				// would unload the DLL. The DLL can contain stored info
+				// such as string literals. The old DLLs are only unloaded
+				// on a full reset or on shutdown.
+				game_memory := game_api.memory()
+				unload_game_api(game_api)
+				game_api^ = new_game_api
+				game_api.on_hot_reload(game_memory)
+
+			} else {
+				// This does a full reset. That's basically like opening and
+				// closing the game, without having to restart the executable.
+				//
+				// You end up in here if the game requests a full reset OR
+				// if the size of the game memory has changed. That would
+				// probably lead to a crash anyways.
+
+				game_api.shutdown()
+				reset_tracking_allocator(tracking_allocator)
+				unload_game_api(game_api)
+				game_api^ = new_game_api
+				game_api.init()
+			}
+
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+reset_tracking_allocator :: proc(a: ^mem.Tracking_Allocator) -> bool {
+	err := false
+
+	for _, value in a.allocation_map {
+		fmt.printf("%v: [Leaked %v bytes]\n    [String]: \"%s\"\n    [Bytes]:  \"%v\"\n", value.location, value.size,
+		strings.string_from_ptr(cast([^]u8)value.memory, value.size), slice.bytes_from_ptr(value.memory, value.size))
+		err = true
+	}
+
+	mem.tracking_allocator_clear(a)
+	return err
+}
+
 main :: proc() {
 	// Set working dir to dir of executable.
 	exe_path := os.args[0]
@@ -114,34 +178,18 @@ main :: proc() {
 	mem.tracking_allocator_init(&tracking_allocator, default_allocator)
 	context.allocator = mem.tracking_allocator(&tracking_allocator)
 
-	reset_tracking_allocator :: proc(a: ^mem.Tracking_Allocator) -> bool {
-		err := false
+	
 
-		for _, value in a.allocation_map {
-			fmt.printf("%v: [Leaked %v bytes]\n    [String]: \"%s\"\n    [Bytes]:  \"%v\"\n", value.location, value.size,
-			strings.string_from_ptr(cast([^]u8)value.memory, value.size), slice.bytes_from_ptr(value.memory, value.size))
-			err = true
-		}
-
-		mem.tracking_allocator_clear(a)
-		return err
-	}
-
-	game_api_version := 0
-	game_api, game_api_ok := load_game_api(game_api_version)
+	game_api, game_api_ok := load_game_api(0)
 
 	if !game_api_ok {
 		fmt.println("Failed to load Game API")
 		return
 	}
 
-	game_api_version += 1
+	game_api.alloc_memory()
 	game_api.init_window()
 	game_api.init()
-
-	// TODO: Why did legend of tuna use default_allocator here?
-	//old_game_apis := make([dynamic]Game_API, default_allocator)
-	old_game_apis := make([dynamic]Game_API, default_allocator)
 
 	tick_num, frame_num, frame_tick_num : u64 = 0, 0, 0
 	t : f64 = 0.0
@@ -154,8 +202,18 @@ main :: proc() {
 
 		game_api.poll_input()
 
-		new_time : f64 = game_api.hi_res_time_in_seconds()
-		frame_time : f64 = new_time - current_time
+		new_time : f64
+		frame_time : f64
+		// Check for reload
+		if game_hotload(&game_api, &tracking_allocator) {
+			new_time = game_api.hi_res_time_in_seconds()
+			// Let's just reset frame_time to 0.0  when a reload happens
+			frame_time = 0.0
+		} else {
+			new_time = game_api.hi_res_time_in_seconds()
+			frame_time = new_time - current_time
+		}
+
 		// TODO: Move 0.25 to config
 		if frame_time > 0.25 {
 			frame_time = 0.25
@@ -173,57 +231,7 @@ main :: proc() {
 		alpha : f64 = accumulator / dt
 		game_api.render(alpha)
 
-		force_reload := game_api.force_reload()
-		force_restart := game_api.force_restart()
-		reload := force_reload || force_restart
-		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
-
-		if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
-			reload = true
-		}
-
-		if reload {
-			new_game_api, new_game_api_ok := load_game_api(game_api_version)
-
-			if new_game_api_ok {
-				force_restart = force_restart || game_api.memory_size() != new_game_api.memory_size()
-
-				if !force_restart {
-					// This does the normal hot reload
-
-					// Note that we don't unload the old game APIs because that
-					// would unload the DLL. The DLL can contain stored info
-					// such as string literals. The old DLLs are only unloaded
-					// on a full reset or on shutdown.
-					append(&old_game_apis, game_api)
-					game_memory := game_api.memory()
-					game_api = new_game_api
-					game_api.on_hot_reload(game_memory)
-				} else {
-					// This does a full reset. That's basically like opening and
-					// closing the game, without having to restart the executable.
-					//
-					// You end up in here if the game requests a full reset OR
-					// if the size of the game memory has changed. That would
-					// probably lead to a crash anyways.
-
-					game_api.shutdown()
-					reset_tracking_allocator(&tracking_allocator)
-
-					for &g in old_game_apis {
-						unload_game_api(&g)
-					}
-
-					clear(&old_game_apis)
-					unload_game_api(&game_api)
-					game_api = new_game_api
-					game_api.init()
-				}
-
-				game_api_version += 1
-			}
-		}
-
+		
 		if len(tracking_allocator.bad_free_array) > 0 {
 			for b in tracking_allocator.bad_free_array {
 				log.errorf("Bad free at: %v", b.location)
@@ -242,11 +250,6 @@ main :: proc() {
 
 	free_all(context.temp_allocator)
 	game_api.shutdown()
-		for &g in old_game_apis {
-		unload_game_api(&g)
-	}
-
-	delete(old_game_apis)
 
 	game_api.shutdown_window()
 
