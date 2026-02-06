@@ -2,7 +2,7 @@ package game
 
 import sdl "vendor:sdl3"
 
-hi_res_time_in_seconds :: proc() -> f64 {
+hi_res_time_in_seconds :: proc "contextless" () -> f64 {
 	@(static) start_counter : u64
 	@(static) frequency : u64
 	// TODO: Way to avoid this if check overhead? Does it matter?

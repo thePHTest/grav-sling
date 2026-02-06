@@ -60,25 +60,17 @@ Game_Memory :: struct {
 //}
 	renderer : ^sdl.Renderer,
 	window : ^sdl.Window,
-
-	//font: rl.Font,
-	//atlas: rl.Texture2D,
-	// sounds
-	//hit_sound: rl.Sound,
-	//land_sound: rl.Sound,
-	//win_sound: rl.Sound,
 }
 
 g_context : runtime.Context
 g_mem: ^Game_Memory
 
 on_hot_reload :: proc() {
-	log.info("Start on_hot_reload()")
-	g_context = context
-	//atlas = g_mem.atlas
-	//font = g_mem.font
 	im_init()
-	log.info("End on_hot_reload()")
+}
+
+unload :: proc() {
+	im_shutdown()
 }
 
 Camera2D :: struct {
@@ -164,7 +156,6 @@ poll_input :: proc() {
 			case .KEY_DOWN:
 			fallthrough
 			case .KEY_UP:
-			log.info("key event")
 			g_keyboard.keys[EScancode(event.key.scancode)].pressed = event.key.down
 		}
 	}
@@ -298,11 +289,6 @@ im_mem_free_func : im.MemFreeFunc : proc "c"(ptr: rawptr, user_data: rawptr) {
 	mem.free(ptr)
 }
 
-g_im_context : Im_Context
-Im_Context :: struct {
-	allocator : mem.Allocator,
-}
-
 im_init :: proc() {
 /*
 when ODIN_DEBUG {
@@ -319,7 +305,7 @@ when ODIN_DEBUG {
 	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
 	// Setup Dear ImGui context
 	im.CHECKVERSION()
-	//im.SetAllocatorFunctions(im_mem_alloc_func, im_mem_free_func)
+	im.SetAllocatorFunctions(im_mem_alloc_func, im_mem_free_func)
 	im.CreateContext()
 	io := im.GetIO()
 	io.ConfigFlags += {.NavEnableKeyboard}
@@ -375,13 +361,11 @@ when ODIN_DEBUG {
     //IM_ASSERT(font != nullptr);
 }
 
-alloc_memory :: proc() {
-	g_mem = new(Game_Memory)
+init_memory :: proc "contextless" (game_memory : ^Game_Memory) {
+	g_mem = game_memory
 }
 
-init_window :: proc() -> bool {
-	g_context = context
-	log.info("init sdl and window...")
+init :: proc() -> bool {
 	/*
 	flags: rl.ConfigFlags
 
@@ -461,7 +445,6 @@ init_window :: proc() -> bool {
 		}
 	}
 
-	log.info("init_window finished")
 	return true
 }
 
@@ -495,9 +478,7 @@ temp_cstring :: proc(s: string) -> cstring {
 }
 
 
-init :: proc() {
-	fmt.println("init")
-
+reset :: proc() {
 	world_def := b2.DefaultWorldDef()
 	world_def.gravity = GRAVITY
 	world_def.enableContinous = true
@@ -505,7 +486,7 @@ init :: proc() {
 	
 	g_mem.avatar = avatar_make({10,10}, 30.0)
 
-	game_on_hot_reload(g_mem)
+	game_on_hot_reload(g_mem, context.allocator)
 	
 	field_width ::  190
 	field_height :: 106 
@@ -590,27 +571,33 @@ shutdown :: proc() {
 	log.info("shutdown complete")
 }
 
-shutdown_window :: proc() {
-	log.info("shutdown sdl and window...")
+im_shutdown :: proc() {
+	log.info("im_shutdown...")
 	when RENDERER_SDL_GPU {
-		// Shutdown imgui
 		SDL_WaitForGPUIdle(g_gpu_device)
 		ImGui_ImplSDL3_Shutdown()
 		ImGui_ImplSDLGPU3_Shutdown()
 		im.DestroyContext()
-
-		// Shutdown sdl
-		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_mem.window)
-		sdl.DestroyGPUDevice(g_gpu_device)
-		sdl.DestroyWindow(g_mem.window)
-		sdl.Quit()
 	} else {
 		// Shutdown imgui
 		ImGui_ImplSDLRenderer3_Shutdown()
 		ImGui_ImplSDL3_Shutdown()
 		im.DestroyContext()
+	}
+	log.info("im_shutdown complete.")
+}
 
-		// Shutdown sdl
+shutdown_window :: proc() {
+	log.info("shutdown sdl and window...")
+	im_shutdown()
+
+	// Shutdown sdl
+	when RENDERER_SDL_GPU {
+		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_mem.window)
+		sdl.DestroyGPUDevice(g_gpu_device)
+		sdl.DestroyWindow(g_mem.window)
+		sdl.Quit()
+	} else {
 		sdl.DestroyRenderer(g_mem.renderer)
 		sdl.DestroyWindow(g_mem.window)
 		sdl.Quit()

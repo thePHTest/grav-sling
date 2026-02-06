@@ -1273,5 +1273,11 @@ ImGui_ImplSDL3_InitMultiViewportSupport :: proc(window: ^sdl.Window, sdl_gl_cont
 }
 
 ImGui_ImplSDL3_ShutdownMultiViewportSupport :: proc() {
+	// We have to call these to make sure c_imgui frees it's "Thunk" data.
+	// and then we don't report memory leaks
+	im.PlatformIO_SetPlatform_GetWindowPos(nil)
+	im.PlatformIO_SetPlatform_GetWindowSize(nil)
+	im.PlatformIO_SetPlatform_GetWindowFramebufferScale(nil)
+
     im.DestroyPlatformWindows()
 }

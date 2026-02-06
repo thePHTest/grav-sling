@@ -5,6 +5,7 @@ changes.
 
 package main
 
+import "base:runtime"
 import "core:dynlib"
 import "core:fmt"
 //import "core:c/libc"
@@ -27,6 +28,8 @@ when ODIN_OS == .Windows {
 GAME_DLL_DIR :: "build/hot_reload/"
 GAME_DLL_PATH :: GAME_DLL_DIR + "game" + DLL_EXT
 
+MEMORY_TRACKING :: true
+
 // We copy the DLL because using it directly would lock it, which would prevent
 // the compiler from writing to it.
 copy_dll :: proc(to: string) -> bool {
@@ -42,9 +45,9 @@ copy_dll :: proc(to: string) -> bool {
 
 Game_API :: struct {
 	lib: dynlib.Library,
-	alloc_memory : proc(),
-	init_window: proc(),
-	init: proc(),
+	init_memory : proc(game_memory : rawptr),
+	init: proc(game_allocator : runtime.Allocator),
+	reset: proc(),
 	poll_input : proc(),
 	update: proc(tick_num : u64, frame_num : u64, frame_tick_num : u64, t : f64, dt : f64),
 	render: proc(alpha : f64),
@@ -52,11 +55,11 @@ Game_API :: struct {
 	should_close: proc() -> bool,
 	shutdown: proc(),
 	shutdown_window: proc(),
-	memory: proc() -> rawptr,
 	memory_size: proc() -> int,
-	on_hot_reload: proc(mem: rawptr),
-	force_reload: proc() -> bool,
-	force_restart: proc() -> bool,
+	on_hot_reload: proc(mem: rawptr, game_allocator : runtime.Allocator),
+	unload: proc(),
+	force_hotload: proc() -> bool,
+	force_reset: proc() -> bool,
 	modification_time: os.File_Time,
 	api_version: int,
 }
@@ -101,10 +104,17 @@ unload_game_api :: proc(api: ^Game_API) {
 	}
 }
 
-game_hotload :: proc(game_api : ^Game_API, tracking_allocator: ^mem.Tracking_Allocator) -> bool {
-	force_reload := game_api.force_reload()
-	force_restart := game_api.force_restart()
-	reload := force_reload || force_restart
+Hotload_Result :: enum {
+	No_Hotload,
+	Load_Failed,
+	Hotload,
+	Full_Reset,
+}
+
+game_hotload :: proc(game_api : ^Game_API) -> (Game_API, Hotload_Result) {
+	force_hotload := game_api.force_hotload()
+	force_reset := game_api.force_reset()
+	reload := force_hotload || force_reset
 	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
 
 	if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
@@ -115,20 +125,11 @@ game_hotload :: proc(game_api : ^Game_API, tracking_allocator: ^mem.Tracking_All
 		new_game_api, new_game_api_ok := load_game_api(game_api.api_version + 1)
 
 		if new_game_api_ok {
-			force_restart = force_restart || game_api.memory_size() != new_game_api.memory_size()
+			force_reset = force_reset || game_api.memory_size() != new_game_api.memory_size()
 
-			if !force_restart {
+			if !force_reset {
 				// This does the normal hot reload
-
-				// Note that we don't unload the old game APIs because that
-				// would unload the DLL. The DLL can contain stored info
-				// such as string literals. The old DLLs are only unloaded
-				// on a full reset or on shutdown.
-				game_memory := game_api.memory()
-				unload_game_api(game_api)
-				game_api^ = new_game_api
-				game_api.on_hot_reload(game_memory)
-
+				return new_game_api, .Hotload
 			} else {
 				// This does a full reset. That's basically like opening and
 				// closing the game, without having to restart the executable.
@@ -136,19 +137,13 @@ game_hotload :: proc(game_api : ^Game_API, tracking_allocator: ^mem.Tracking_All
 				// You end up in here if the game requests a full reset OR
 				// if the size of the game memory has changed. That would
 				// probably lead to a crash anyways.
-
-				game_api.shutdown()
-				reset_tracking_allocator(tracking_allocator)
-				unload_game_api(game_api)
-				game_api^ = new_game_api
-				game_api.init()
+				return new_game_api, .Full_Reset
 			}
 
-			return true
 		}
-		return false
+		return {}, .Load_Failed
 	}
-	return false
+	return {}, .No_Hotload
 }
 
 reset_tracking_allocator :: proc(a: ^mem.Tracking_Allocator) -> bool {
@@ -165,6 +160,14 @@ reset_tracking_allocator :: proc(a: ^mem.Tracking_Allocator) -> bool {
 }
 
 main :: proc() {
+	exe_allocator := os2.heap_allocator()
+when MEMORY_TRACKING {
+	exe_tracking_allocator : mem.Tracking_Allocator
+	mem.tracking_allocator_init(&exe_tracking_allocator, exe_allocator)
+	exe_allocator = mem.tracking_allocator(&exe_tracking_allocator)
+}
+	context.allocator = exe_allocator
+
 	// Set working dir to dir of executable.
 	exe_path := os.args[0]
 	exe_dir := filepath.dir(string(exe_path), context.temp_allocator)
@@ -173,12 +176,12 @@ main :: proc() {
 	context.logger = log.create_console_logger()
 	log.info("Console logger created")
 
-	default_allocator := context.allocator
-	tracking_allocator: mem.Tracking_Allocator
-	mem.tracking_allocator_init(&tracking_allocator, default_allocator)
-	context.allocator = mem.tracking_allocator(&tracking_allocator)
-
-	
+	game_allocator := os2.heap_allocator()
+when MEMORY_TRACKING {
+	game_tracking_allocator: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&game_tracking_allocator, game_allocator)
+	game_allocator = mem.tracking_allocator(&game_tracking_allocator)
+}
 
 	game_api, game_api_ok := load_game_api(0)
 
@@ -187,9 +190,14 @@ main :: proc() {
 		return
 	}
 
-	game_api.alloc_memory()
-	game_api.init_window()
-	game_api.init()
+	game_memory, alloc_err := mem.alloc(game_api.memory_size(), allocator = game_allocator)
+	if alloc_err != .None {
+		log.error("Could not allocate game memory. Error:", alloc_err)
+		os.exit(-1)
+	}
+	game_api.init_memory(game_memory)
+	game_api.init(game_allocator)
+	game_api.reset()
 
 	tick_num, frame_num, frame_tick_num : u64 = 0, 0, 0
 	t : f64 = 0.0
@@ -197,6 +205,9 @@ main :: proc() {
 	current_time : f64 = game_api.hi_res_time_in_seconds()
 	accumulator : f64 = 0.0
 
+	// We need to keep the old game dlls around so that things like string literals
+	// and source code lcations (used by the tracking allocator) stick around
+	old_game_apis := make([dynamic]Game_API)
 	for !game_api.should_close() {
 		frame_tick_num = 0
 
@@ -205,7 +216,29 @@ main :: proc() {
 		new_time : f64
 		frame_time : f64
 		// Check for reload
-		if game_hotload(&game_api, &tracking_allocator) {
+		if new_game_api, hotload_result := game_hotload(&game_api); hotload_result != .No_Hotload {
+			switch hotload_result {
+			case .No_Hotload:
+			case .Load_Failed:
+				log.error("Hotload game api failed")
+			case .Hotload:
+				append(&old_game_apis, game_api)
+				game_api.unload()
+				game_api = new_game_api
+				game_api.on_hot_reload(game_memory, game_allocator)
+			case .Full_Reset:
+				game_api.shutdown()
+			when MEMORY_TRACKING {
+				reset_tracking_allocator(&game_tracking_allocator)
+			}
+				for &old_game_api in old_game_apis {
+					unload_game_api(&old_game_api)
+				}
+				clear(&old_game_apis)
+				unload_game_api(&game_api)
+				game_api = new_game_api
+				game_api.init(game_allocator)
+			}
 			new_time = game_api.hi_res_time_in_seconds()
 			// Let's just reset frame_time to 0.0  when a reload happens
 			frame_time = 0.0
@@ -232,17 +265,22 @@ main :: proc() {
 		game_api.render(alpha)
 
 		
-		if len(tracking_allocator.bad_free_array) > 0 {
-			for b in tracking_allocator.bad_free_array {
-				log.errorf("Bad free at: %v", b.location)
+	when MEMORY_TRACKING {
+		if len(game_tracking_allocator.bad_free_array) > 0 {
+			for b in game_tracking_allocator.bad_free_array {
+				log.errorf("Game Bad free at: %v", b.location)
 			}
 
-			// This prevents the game from closing without you seeing the bad
-			// frees. This is mostly needed because I use Sublime Text and my game's
-			// console isn't hooked up into Sublime's console properly.
-			//libc.getchar()
-			panic("Bad free detected")
+			panic("Game Bad free detected")
 		}
+		if len(exe_tracking_allocator.bad_free_array) > 0 {
+			for b in exe_tracking_allocator.bad_free_array {
+				log.errorf("Exe Bad free at: %v", b.location)
+			}
+
+			panic("Exe Bad free detected")
+		}
+	}
 
 		free_all(context.temp_allocator)
 		frame_num += 1
@@ -250,21 +288,25 @@ main :: proc() {
 
 	free_all(context.temp_allocator)
 	game_api.shutdown()
-
 	game_api.shutdown_window()
 
-	// TODO: I would love to move this to after unload_game_api() as this is currently
-	// logging false positives as a consequence. We can't right now as then we lose the
-	//  allocations from in the dll
-	if reset_tracking_allocator(&tracking_allocator) {
-		// This prevents the game from closing without you seeing the memory
-		// leaks. This is mostly needed because I use Sublime Text and my game's
-		// console isn't hooked up into Sublime's console properly.
-		//libc.getchar()
+when MEMORY_TRACKING {
+	if reset_tracking_allocator(&game_tracking_allocator) {
 	}
+	mem.tracking_allocator_destroy(&game_tracking_allocator)
 
+	for &old_game_api in old_game_apis {
+		unload_game_api(&old_game_api)
+	}
+	delete(old_game_apis)
 	unload_game_api(&game_api)
-	mem.tracking_allocator_destroy(&tracking_allocator)
+
+	if reset_tracking_allocator(&exe_tracking_allocator) {
+	}
+}
+
+	mem.tracking_allocator_destroy(&exe_tracking_allocator)
+	log.info("exit")
 }
 
 // Make game use good GPU on laptops.
