@@ -1,7 +1,10 @@
 package game
 
-// TODO
-// - Abstract over SDL. sys package, renderer package, etc
+HOTLOAD :: true
+when HOTLOAD {
+import "hotload_api"
+}
+
 import "base:runtime"
 import b2 "box2d"
 //import rl "vendor:raylib"
@@ -34,6 +37,8 @@ Pivot :: struct {
 }
 
 Game_Memory :: struct {
+	sim_ctx : Sim_Ctx,
+
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	avatar: Avatar,
@@ -165,6 +170,113 @@ poll_input :: proc() {
 		sdl.Delay(10)
 		return
 	}
+}
+
+
+when HOTLOAD {
+
+game_hotload :: proc(game_api : hotload_api.Game_API) -> (hotload_api.Game_API, hotload_api.Hotload_Result) {
+	force_hotload := game_api.force_hotload()
+	force_reset := game_api.force_reset()
+	reload := force_hotload || force_reset
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
+
+	if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
+		reload = true
+	}
+
+	if reload {
+		new_game_api, new_game_api_ok := load_game_api(game_api.api_version + 1)
+
+		if new_game_api_ok {
+			force_reset = force_reset || game_api.memory_size() != new_game_api.memory_size()
+
+			if !force_reset {
+				// This does the normal hot reload
+				return new_game_api, .Hotload
+			} else {
+				// This does a full reset. That's basically like opening and
+				// closing the game, without having to restart the executable.
+				//
+				// You end up in here if the game requests a full reset OR
+				// if the size of the game memory has changed. That would
+				// probably lead to a crash anyways.
+				return new_game_api, .Full_Reset
+			}
+
+		}
+		return {}, .Load_Failed
+	}
+	return {}, .No_Hotload
+}
+}
+
+when !HOTLOAD {
+main :: proc() {
+	// TODO
+	_main()
+}
+}
+
+hotload_main :: proc(game_api : hotload_api.Game_API) ->  hotload_api.Hotload_Result {
+	tick_num, frame_num, frame_tick_num : u64 = 0, 0, 0
+	t : f64 = 0.0
+	dt : f64 = 0.01
+	current_time : f64 = game_api.hi_res_time_in_seconds()
+	accumulator : f64 = 0.0
+
+	for !game_should_close() {
+		frame_tick_num = 0
+		game_poll_input()
+
+		new_time : f64
+		frame_time : f64
+
+		when HOTLOAD {
+		// Check for reload
+		new_game_api, hotload_result := game_hotload(game_api)
+		switch hotload_result {
+		case .No_Hotload:
+		case .Load_Failed:
+			log.error("Hotload game api failed")
+		case .Hotload:
+		fallthrough
+		case .Full_Reset:
+			return new_game_api, hotload_result
+		}
+		}
+
+		new_time = game_api.hi_res_time_in_seconds()
+		frame_time = new_time - current_time
+
+		// TODO: Move 0.25 to config
+		if frame_time > 0.25 {
+			frame_time = 0.25
+		}
+		current_time = new_time
+		accumulator += frame_time
+
+		for accumulator >= dt {
+			game_api.update(tick_num, frame_num, frame_tick_num, t, dt)
+			t += dt
+			accumulator -= dt
+			tick_num += 1
+			frame_tick_num += 1
+		}
+		alpha : f64 = accumulator / dt
+		game_api.render(alpha)
+
+	}
+
+	return {}, .Exit
+}
+
+Sim_Ctx :: struct {
+	tick_num : u64,
+	frame_num : u64,
+	frame_tick_num : u64,
+	t : f64,
+	dt : f64,
 }
 
 show_demo_window := false
