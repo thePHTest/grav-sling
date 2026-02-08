@@ -80,6 +80,7 @@ ImGui_ImplSDLRenderer3_Init:: proc(renderer : ^sdl.Renderer) -> bool {
     io.BackendFlags |= {.RendererHasVtxOffset}  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
     io.BackendFlags |= {.RendererHasTextures}   // We can honor ImGuiPlatformIO::Textures[] requests during render.
     bd.renderer = renderer
+	bd.color_buffer = make([dynamic]sdl.FColor)
 
     return true
 }

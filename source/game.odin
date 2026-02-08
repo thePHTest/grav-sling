@@ -1,26 +1,76 @@
 package game
 
-HOTLOAD :: true
-when HOTLOAD {
+HOTLOAD :: #config(HOTLOAD, true)
+MEMORY_TRACKING :: #config(MEMORY_TRACKING, true)
+
 import "hotload_api"
-}
+import "mem_tracking"
 
 import "base:runtime"
 import b2 "box2d"
 //import rl "vendor:raylib"
 import sdl "vendor:sdl3"
 import im "deps:odin-imgui"
-import "core:fmt"
 import "core:log"
 import "core:c"
 //import "core:math"
 import "core:mem"
+import "core:os"
+import "core:os/os2"
 import "core:strings"
 
 GAME_TITLE :: "GravSling"
 PIXEL_WINDOW_HEIGHT :: 1080
 
 RENDERER_SDL_GPU :: false
+
+// Hotload exports
+when HOTLOAD {
+@(export)
+game_platform_init :: proc (platform_allocator : ^runtime.Allocator) -> rawptr {
+	return cast(rawptr)platform_init(platform_allocator)
+}
+
+@(export)
+game_mem_reset :: proc(raw_platform_memory : rawptr) -> rawptr {
+	log.info("game_reset()...")
+	platform := cast(^Platform_State)raw_platform_memory
+	result := g_mem_reset(platform)
+	log.info("game_reset() complete.")
+	return cast(rawptr)result
+}
+
+@(export)
+game_shutdown :: proc(platform : rawptr, game_memory : rawptr) {
+	context = g_context
+	platform := cast(^Platform_State)platform
+	g_mem := cast(^Game_Memory)game_memory
+	g_mem_shutdown(platform, g_mem)
+}
+
+@(export)
+game_unload :: proc() {
+	unload()
+}
+
+@(export)
+game_hotload_main_loop :: proc(raw_platform_memory : rawptr, raw_game_memory : rawptr, game_api : hotload_api.Game_API) -> (new_game_api : hotload_api.Game_API, hotload_result : hotload_api.Hotload_Result) {
+	log.info("hotload_main_loop()...")
+	platform := cast(^Platform_State)raw_platform_memory
+	g_mem := cast(^Game_Memory)raw_game_memory
+
+	context.allocator = g_mem.allocator
+	g_context = context
+
+	return hotload_main_loop(platform, g_mem, game_api)
+}
+
+@(export)
+game_memory_size :: proc() -> int {
+	return size_of(Game_Memory)
+}
+}
+
 
 Wall :: struct {
 	body: b2.BodyId,
@@ -34,6 +84,32 @@ Pivot :: struct {
 	shape: b2.ShapeId,
 	pos: Vec2,
 	radius: f32,
+}
+
+when MEMORY_TRACKING {
+Memory_Tracking :: struct {
+	tracking_allocator : mem.Tracking_Allocator,
+}
+} else {
+	Memory_Tracking :: struct {}
+}
+
+// This is data that must persist across hard resets
+Platform_State :: struct {
+
+	// TODO: Can't use when here
+//when RENDERER_SDL_GPU {
+//gpu_device: ^sdl.GPUDevice
+//} else {
+//sdl_renderer: ^sdl.Renderer
+//}
+	renderer : ^sdl.Renderer,
+	window : ^sdl.Window,
+
+	allocator : ^runtime.Allocator,
+
+	platform_memory_tracking : Memory_Tracking,
+	game_memory_tracking : Memory_Tracking,
 }
 
 Game_Memory :: struct {
@@ -57,25 +133,16 @@ Game_Memory :: struct {
 
 	finished: bool,
 
-	// TODO: Can't use when here
-//when RENDERER_SDL_GPU {
-//gpu_device: ^sdl.GPUDevice
-//} else {
-//sdl_renderer: ^sdl.Renderer
-//}
-	renderer : ^sdl.Renderer,
-	window : ^sdl.Window,
+	allocator : runtime.Allocator,
 }
 
 g_context : runtime.Context
-g_mem: ^Game_Memory
 
-on_hot_reload :: proc() {
-	im_init()
-}
 
+when HOTLOAD {
 unload :: proc() {
 	im_shutdown()
+}
 }
 
 Camera2D :: struct {
@@ -96,9 +163,9 @@ game_camera :: proc() -> Camera2D {
 	}
 }
 
-get_screen :: proc() -> Vec2 {
+get_screen :: proc(window : ^sdl.Window) -> Vec2 {
 	w, h : i32
-	sdl.GetWindowSizeInPixels(g_mem.window, &w, &h)
+	sdl.GetWindowSizeInPixels(window, &w, &h)
 	return Vec2{f32(w), f32(h)}
 }
 
@@ -109,11 +176,11 @@ ui_camera :: proc() -> Camera2D {
 	}
 }
 
-physics_world :: proc() -> b2.WorldId {
+physics_world :: proc(g_mem : ^Game_Memory) -> b2.WorldId {
 	return g_mem.physics_world
 }
 
-poll_input :: proc() {
+poll_input :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	// Reset pressed/released
 	g_gamepad.buttons_pressed = {}
 	g_gamepad.buttons_released = {}
@@ -129,7 +196,7 @@ poll_input :: proc() {
 		ImGui_ImplSDL3_ProcessEvent(&event)
 		if event.type == .QUIT {
 		}
-		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(g_mem.window) {
+		if event.type == .WINDOW_CLOSE_REQUESTED && event.window.windowID == sdl.GetWindowID(platform.window) {
 		}
 
 		#partial switch event.type {
@@ -161,12 +228,13 @@ poll_input :: proc() {
 			case .KEY_DOWN:
 			fallthrough
 			case .KEY_UP:
+			log.info(event.key)
 			g_keyboard.keys[EScancode(event.key.scancode)].pressed = event.key.down
 		}
 	}
 
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppIterate() function]
-	if .MINIMIZED in sdl.GetWindowFlags(g_mem.window) {
+	if .MINIMIZED in sdl.GetWindowFlags(platform.window) {
 		sdl.Delay(10)
 		return
 	}
@@ -175,18 +243,28 @@ poll_input :: proc() {
 
 when HOTLOAD {
 
-game_hotload :: proc(game_api : hotload_api.Game_API) -> (hotload_api.Game_API, hotload_api.Hotload_Result) {
-	force_hotload := game_api.force_hotload()
-	force_reset := game_api.force_reset()
+force_hotload :: proc() -> bool {
+	return keyboard_is_key_pressed(g_keyboard, .F4)
+}
+
+force_reset:: proc() -> bool {
+	return keyboard_is_key_pressed(g_keyboard, .F5)
+}
+
+hotload :: proc(game_api : hotload_api.Game_API, platform_allocator : mem.Allocator) -> (hotload_api.Game_API, hotload_api.Hotload_Result) {
+	context.allocator = platform_allocator
+
+	force_hotload := force_hotload()
+	force_reset := force_reset()
 	reload := force_hotload || force_reset
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(GAME_DLL_PATH)
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(hotload_api.GAME_DLL_PATH)
 
 	if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
 		reload = true
 	}
 
 	if reload {
-		new_game_api, new_game_api_ok := load_game_api(game_api.api_version + 1)
+		new_game_api, new_game_api_ok := hotload_api.load_game_api(game_api.api_version + 1)
 
 		if new_game_api_ok {
 			force_reset = force_reset || game_api.memory_size() != new_game_api.memory_size()
@@ -211,64 +289,173 @@ game_hotload :: proc(game_api : hotload_api.Game_API) -> (hotload_api.Game_API, 
 }
 }
 
-when !HOTLOAD {
-main :: proc() {
-	// TODO
-	_main()
-}
-}
 
-hotload_main :: proc(game_api : hotload_api.Game_API) ->  hotload_api.Hotload_Result {
-	tick_num, frame_num, frame_tick_num : u64 = 0, 0, 0
-	t : f64 = 0.0
-	dt : f64 = 0.01
-	current_time : f64 = game_api.hi_res_time_in_seconds()
-	accumulator : f64 = 0.0
-
-	for !game_should_close() {
-		frame_tick_num = 0
-		game_poll_input()
-
-		new_time : f64
-		frame_time : f64
-
-		when HOTLOAD {
-		// Check for reload
-		new_game_api, hotload_result := game_hotload(game_api)
-		switch hotload_result {
-		case .No_Hotload:
-		case .Load_Failed:
-			log.error("Hotload game api failed")
-		case .Hotload:
-		fallthrough
-		case .Full_Reset:
-			return new_game_api, hotload_result
-		}
-		}
-
-		new_time = game_api.hi_res_time_in_seconds()
-		frame_time = new_time - current_time
-
-		// TODO: Move 0.25 to config
-		if frame_time > 0.25 {
-			frame_time = 0.25
-		}
-		current_time = new_time
-		accumulator += frame_time
-
-		for accumulator >= dt {
-			game_api.update(tick_num, frame_num, frame_tick_num, t, dt)
-			t += dt
-			accumulator -= dt
-			tick_num += 1
-			frame_tick_num += 1
-		}
-		alpha : f64 = accumulator / dt
-		game_api.render(alpha)
-
+platform_init :: proc(platform_allocator : ^runtime.Allocator) -> ^Platform_State {
+	context.allocator = platform_allocator^
+	log.info("platform_init()...")
+	platform, alloc_err := new(Platform_State)
+	if alloc_err != .None {
+		log.error("Could not allocate platform state. Error:", alloc_err)
+		os.exit(-1)
 	}
 
+	platform.allocator = platform_allocator
+	if !sdl_init(platform, platform_allocator^) {
+		log.error("Failed to init sdl. Exit.")
+		os.exit(-1)
+	}
+
+	log.info("platform_init() complete.")
+	return platform
+}
+
+platform_shutdown :: proc(platform : ^Platform_State) {
+	context.allocator = platform.allocator^
+	free(platform)
+}
+
+when !HOTLOAD {
+main :: proc() {
+	// Set working directory to exe
+	exe_path := os.args[0]
+	exe_dir := filepath.dir(string(exe_path), context.temp_allocator)
+	os.set_current_directory(exe_dir)
+	context.logger = log.create_console_logger()
+	log.info("Console logger created")
+
+	// Configure root allocator
+	platform_allocator := os2.heap_allocator()
+when MEMORY_TRACKING {
+	platform_tracking_allocator : mem.Tracking_Allocator
+	mem.tracking_allocator_init(&platform_tracking_allocator, platform_allocator)
+	platform_allocator = mem.tracking_allocator(&platform_tracking_allocator)
+}
+	context.allocator = platform_allocator
+
+	platform := platform_init(&platform_allocator)
+	g_mem := g_mem_reset(platform)
+	im_init(platform)
+
+	g_mem.sim_ctx.current_time = game_api.hi_res_time_in_seconds()
+	g_mem.sim_ctx.accumulator = 0.0
+	for !game_should_close(g_mem) {
+		poll_input(platform, g_mem)
+		update_and_render(g_mem)
+		on_frame_end(platform, g_mem)
+	}
+
+	on_shutdown()
+}
+}
+
+game_should_close :: proc(g_mem : ^Game_Memory) -> bool {
+	return g_mem.finished
+}
+
+on_frame_end :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
+when MEMORY_TRACKING {
+	if len(platform.game_memory_tracking.tracking_allocator.bad_free_array) > 0 {
+		for b in platform.game_memory_tracking.tracking_allocator.bad_free_array {
+			log.errorf("Game Bad free at: %v", b.location)
+		}
+
+		panic("Game Bad free detected")
+	}
+}
+	free_all(context.temp_allocator)
+	g_mem.sim_ctx.frame_num += 1
+}
+
+on_shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
+	im_shutdown()
+	game_shutdown(platform, g_mem)
+	sdl_shutdown(platform, platform.allocator^)
+when MEMORY_TRACKING {
+	if mem_tracking.reset_tracking_allocator(&platform.game_memory_tracking.tracking_allocator) {
+	}
+	mem.tracking_allocator_destroy(&platform.game_memory_tracking.tracking_allocator)
+	platform_shutdown(platform)
+}
+}
+
+hotload_main_loop :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, game_api : hotload_api.Game_API) -> (new_game_api : hotload_api.Game_API, hotload_result : hotload_api.Hotload_Result) {
+	// On hot-reload code
+	im_init(platform)
+
+	// Main loop
+	g_mem.sim_ctx.current_time = hi_res_time_in_seconds()
+	g_mem.sim_ctx.accumulator = 0.0
+	for !game_should_close(g_mem) {
+
+		poll_input(platform, g_mem)
+
+		// Check for reload                                   
+		new_game_api, hotload_result = hotload(game_api, platform.allocator^)
+		if hotload_result != .No_Hotload {
+			if hotload_result == .Load_Failed {
+				log.error("Hotload game api failed")          
+			} else {
+				if hotload_result == .Hotload {
+					unload()
+				} else if hotload_result == .Full_Reset {
+					unload()
+					g_mem_shutdown(platform, g_mem)
+				}
+				log.info("hotload_main_loop() return:", hotload_result)
+				return new_game_api, hotload_result
+			}
+		}
+
+		update_and_render(platform, g_mem)
+
+		on_frame_end(platform, g_mem)
+	}
+
+	on_shutdown(platform, g_mem)
+	log.info("hotload_main_loop() .Exit")
 	return {}, .Exit
+}
+
+update_and_render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
+	g_mem.sim_ctx.frame_tick_num = 0
+
+	new_time : f64 = hi_res_time_in_seconds()
+	frame_time : f64 = new_time - g_mem.sim_ctx.current_time
+
+	// TODO: Move 0.25 to config
+	if frame_time > 0.25 {
+		frame_time = 0.25
+	}
+	g_mem.sim_ctx.current_time = new_time
+	g_mem.sim_ctx.accumulator += frame_time
+
+	for g_mem.sim_ctx.accumulator >= g_mem.sim_ctx.dt {
+		update(g_mem)
+		g_mem.sim_ctx.t += g_mem.sim_ctx.dt
+		g_mem.sim_ctx.accumulator -= g_mem.sim_ctx.dt
+		g_mem.sim_ctx.tick_num += 1
+		g_mem.sim_ctx.frame_tick_num += 1
+	}
+	alpha : f64 = g_mem.sim_ctx.accumulator / g_mem.sim_ctx.dt
+
+	render(platform, g_mem, alpha)
+		
+	when MEMORY_TRACKING {
+		if len(platform.game_memory_tracking.tracking_allocator.bad_free_array) > 0 {
+			for b in platform.game_memory_tracking.tracking_allocator.bad_free_array {
+				log.errorf("Game Bad free at: %v", b.location)
+			}
+
+			panic("Game Bad free detected")
+		}
+		if len(platform.platform_memory_tracking.tracking_allocator.bad_free_array) > 0 {
+			for b in platform.platform_memory_tracking.tracking_allocator.bad_free_array {
+				log.errorf("Exe Bad free at: %v", b.location)
+			}
+
+			panic("Exe Bad free detected")
+		}
+	}
 }
 
 Sim_Ctx :: struct {
@@ -277,18 +464,21 @@ Sim_Ctx :: struct {
 	frame_tick_num : u64,
 	t : f64,
 	dt : f64,
+
+	current_time : f64,
+	accumulator : f64,
 }
 
 show_demo_window := false
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
-update :: proc(sim_ctx : Sim_Ctx) {
-	if sim_ctx.frame_tick_num > 0 {
+update :: proc(g_mem : ^Game_Memory) {
+	if g_mem.sim_ctx.frame_tick_num > 0 {
 		// TODO: Is this the best way to represent not pressed this tick?
 		g_gamepad.buttons_pressed = {}
 	}
-	b2.World_Step(physics_world(), f32(sim_ctx.dt), 4)	
-	avatar_update(&g_mem.avatar, sim_ctx, g_mem.pivots, g_mem.physics_world)
+	b2.World_Step(physics_world(g_mem), f32(g_mem.sim_ctx.dt), 4)	
+	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.pivots, g_mem.physics_world)
 }
 
 Collision_Category :: enum u32 {
@@ -297,51 +487,51 @@ Collision_Category :: enum u32 {
 	Pivot,
 }
 
-wall_render :: proc(wall : Wall, camera : Camera2D, screen : Vec2) {
+wall_render :: proc(renderer : ^sdl.Renderer, wall : Wall, camera : Camera2D, screen : Vec2) {
 	screen_rect := rect_world_to_screen(wall.rect, camera, screen)
-	sdl.SetRenderDrawColor(g_mem.renderer, 0, 255, 0, 255)
-	sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&screen_rect)
+	sdl.SetRenderDrawColor(renderer, 0, 255, 0, 255)
+	sdl.RenderFillRect(renderer, cast(^sdl.FRect)&screen_rect)
 }
 
-pivot_render :: proc(pivot: Pivot, camera : Camera2D, screen : Vec2) {
-	render_circle_filled(pivot.pos, pivot.radius, camera, screen)
+pivot_render :: proc(renderer : ^sdl.Renderer, pivot: Pivot, camera : Camera2D, screen : Vec2) {
+	render_circle_filled(renderer, pivot.pos, pivot.radius, camera, screen)
 }
 
-world_render :: proc(camera : Camera2D, screen : Vec2, alpha : f64) {
+world_render :: proc(g_mem : Game_Memory, renderer : ^sdl.Renderer, camera : Camera2D, screen : Vec2, alpha : f64) {
 	// Draw the origin
-	render_circle_filled({}, 1.0, camera, screen)
+	render_circle_filled(renderer, {}, 1.0, camera, screen)
 
 
-	avatar_render(g_mem.avatar, camera, screen, alpha)
-	wall_render(g_mem.left_wall, camera, screen)
-	wall_render(g_mem.right_wall, camera, screen)
-	wall_render(g_mem.top_wall, camera, screen)
-	wall_render(g_mem.bottom_wall, camera, screen)
+	avatar_render(renderer, g_mem.avatar, camera, screen, alpha)
+	wall_render(renderer, g_mem.left_wall, camera, screen)
+	wall_render(renderer, g_mem.right_wall, camera, screen)
+	wall_render(renderer, g_mem.top_wall, camera, screen)
+	wall_render(renderer, g_mem.bottom_wall, camera, screen)
 	
 	for pivot in g_mem.pivots {
-		pivot_render(pivot, camera, screen)
+		pivot_render(renderer, pivot, camera, screen)
 	}
 	
 	// Origin
 	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
 }
 
-render :: proc(alpha : f64) {
+render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 	//debug_draw()
 	//rl.BeginDrawing()
 	//t := f32(rl.GetTime())
 	game_cam := game_camera()
-	screen := get_screen()
+	screen := get_screen(platform.window)
 
 	//rl.DrawRectangleRec({0, 0, f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}, rl.WHITE)
 	//rl.ClearBackground({0, 120, 153, 255})
 	//rl.BeginMode2D(game_cam)
 
-	sdl.SetRenderDrawColor(g_mem.renderer, 0, 0, 0, 255)
-	sdl.RenderClear(g_mem.renderer)
-	world_render(game_cam, screen, alpha)
-	im_render()
-	sdl.RenderPresent(g_mem.renderer)
+	sdl.SetRenderDrawColor(platform.renderer, 0, 0, 0, 255)
+	sdl.RenderClear(platform.renderer)
+	world_render(g_mem^, platform.renderer, game_cam, screen, alpha)
+	im_render(platform, g_mem)
+	sdl.RenderPresent(platform.renderer)
 
 	//rl.EndMode2D()
 	//rl.BeginMode2D(ui_camera())
@@ -401,18 +591,9 @@ im_mem_free_func : im.MemFreeFunc : proc "c"(ptr: rawptr, user_data: rawptr) {
 	mem.free(ptr)
 }
 
-im_init :: proc() {
-/*
-when ODIN_DEBUG {
-	g_im_context.allocator = runtime.default_allocator()
-	context.allocator = runtime.default_allocator()
-} else {
-	tracking_allocator : mem.Tracking_Allocator
-	mem.tracking_allocator_init(&tracking_allocator, context.allocator)
-	g_im_context.allocator = tracking_allocator
-	context.allocator = tracking_allocator
-}
-*/
+im_init :: proc(platform : ^Platform_State) {
+	context = g_context
+	log.info("im_init()...")
 
 	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
 	// Setup Dear ImGui context
@@ -443,17 +624,17 @@ when ODIN_DEBUG {
 
 	when RENDERER_SDL_GPU {
 		// Setup Platform/Renderer backends
-		ImGui_ImplSDL3_InitForSDLGPU(g_mem.window)
+		ImGui_ImplSDL3_InitForSDLGPU(platform.window)
 		init_info : ImGui_ImplSDLGPU3_InitInfo
 		init_info.device = g_gpu_device
-		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, g_mem.window)
+		init_info.color_target_format = sdl.GetGPUSwapchainTextureFormat(g_gpu_device, platform.window)
 		init_info.msaa_samples = ._1                      // Only used in multi-viewports mode.
 		init_info.swapchain_composition = .SDR  // Only used in multi-viewports mode.
 		init_info.present_mode = .VSYNC
 		ImGui_ImplSDLGPU3_Init(&init_info)
 	} else {
-		ImGui_ImplSDL3_InitForSDLRenderer(g_mem.window, g_mem.renderer)
-		ImGui_ImplSDLRenderer3_Init(g_mem.renderer)
+		ImGui_ImplSDL3_InitForSDLRenderer(platform.window, platform.renderer)
+		ImGui_ImplSDLRenderer3_Init(platform.renderer)
 	}
 
 	// Load Fonts
@@ -471,37 +652,14 @@ when ODIN_DEBUG {
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
+
+	log.info("im_init() complete.")
 }
 
-init_memory :: proc "contextless" (game_memory : ^Game_Memory) {
-	g_mem = game_memory
-}
 
-init :: proc() -> bool {
-	/*
-	flags: rl.ConfigFlags
-
-	when ODIN_DEBUG {
-		flags = {.WINDOW_RESIZABLE, .VSYNC_HINT}
-	} else {
-		flags = { .VSYNC_HINT }
-	}
-
-	when IS_WASM {
-		flags += { .WINDOW_RESIZABLE }
-	}
-
-	rl.SetConfigFlags(flags)
-	rl.InitWindow(1920, 1080, "The Legend of Tuna")
-	rl.SetWindowPosition(200, 200)
-	rl.SetTargetFPS(500)
-	rl.InitAudioDevice()
-	when !ODIN_DEBUG && !IS_WASM {
-		rl.ToggleBorderlessWindowed()
-	}
-	rl.SetExitKey(.KEY_NULL)
-	*/
-
+sdl_init :: proc(platform_state : ^Platform_State, platform_allocator : runtime.Allocator) -> bool {
+	context.allocator = platform_allocator
+	log.info("sdl_init()...")
 	if !sdl.Init({.AUDIO, .VIDEO, .EVENTS, .GAMEPAD}) {
 		log.error("sdl.Init() failed:", sdl.GetError())
 		return false
@@ -515,24 +673,23 @@ init :: proc() -> bool {
 	// TODO: Proper window size settings
 	// TODO: Proper indow flags setting
 	//g_mem.window = sdl.CreateWindow(GAME_TITLE, i32(1920 * main_scale), i32(1080 * main_scale), window_flags)
-	g_mem.window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
-	if g_mem.window == nil {
+	platform_state.window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
+	if platform_state.window == nil {
 		log.error("sdl.CreateWindow() failed:", sdl.GetError())
 		return false
 	}
-	log.info("init sdl and window success")
 
 	when !RENDERER_SDL_GPU {
-		g_mem.renderer = sdl.CreateRenderer(g_mem.window, nil)
-		sdl.SetRenderVSync(g_mem.renderer, 1)
-		if g_mem.renderer == nil {
+		platform_state.renderer = sdl.CreateRenderer(platform_state.window, nil)
+		sdl.SetRenderVSync(platform_state.renderer, 1)
+		if platform_state.renderer == nil {
 			log.error("Error: SDL_CreateRenderer(): %s\n", sdl.GetError())
 			return false
 		}
 	}
 
-	sdl.SetWindowPosition(g_mem.window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
-	sdl.ShowWindow(g_mem.window)
+	sdl.SetWindowPosition(platform_state.window, sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED)
+	sdl.ShowWindow(platform_state.window)
 
 	when RENDERER_SDL_GPU {
 		// TODO: This following stuff should maybe be moved to init instead? Depends on what is needed for hot reload
@@ -545,18 +702,19 @@ init :: proc() -> bool {
 		}
 
 		// Claim window for GPU Device
-		if !sdl.ClaimWindowForGPUDevice(g_gpu_device, g_mem.window) {
+		if !sdl.ClaimWindowForGPUDevice(g_gpu_device, platform_state.window) {
 			log.error("sdl.ClaimWindowForGPUDevice() failed:", sdl.GetError())
 			return false
 		}
 
-		if !sdl.SetGPUSwapchainParameters(g_gpu_device, g_mem.window, .SDR, .VSYNC) {
+		if !sdl.SetGPUSwapchainParameters(g_gpu_device, platform_state.window, .SDR, .VSYNC) {
 			log.error("sdl.SetGPUSwapchainParameters() failed:", sdl.GetError())
 			// TODO: Maybe it's okay to continue if setting params fails? Or try backup params?
 			return false
 		}
 	}
 
+	log.info("sdl_init() complete.")
 	return true
 }
 
@@ -589,16 +747,31 @@ temp_cstring :: proc(s: string) -> cstring {
 	return strings.clone_to_cstring(s, context.temp_allocator)
 }
 
+g_mem_reset :: proc(platform : ^Platform_State) -> ^Game_Memory {
+	log.info("g_mem_reset()...")
+	game_allocator := os2.heap_allocator()
+when MEMORY_TRACKING {
+	mem.tracking_allocator_init(&platform.game_memory_tracking.tracking_allocator, game_allocator, game_allocator)
+	game_allocator = mem.tracking_allocator(&platform.game_memory_tracking.tracking_allocator)
+}
+	context.allocator = game_allocator
+	g_context = context
 
-reset :: proc() {
+	g_mem, alloc_err := new(Game_Memory)
+	if alloc_err != .None {
+		log.error("Could not allocate game memory. Error:", alloc_err)
+		os.exit(-1)
+	}
+	g_mem.allocator = game_allocator
+
+	g_mem.sim_ctx = {dt=0.01}
+
 	world_def := b2.DefaultWorldDef()
 	world_def.gravity = GRAVITY
 	world_def.enableContinous = true
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
-	g_mem.avatar = avatar_make({10,10}, 30.0)
-
-	game_on_hot_reload(g_mem, context.allocator)
+	g_mem.avatar = avatar_make(g_mem, {10,10}, 30.0)
 	
 	field_width ::  190
 	field_height :: 106 
@@ -607,21 +780,24 @@ reset :: proc() {
 	if USE_PIVOTS {
 		for y := -field_height / 2; y < field_height/2; y += 30 {
 			for x := -field_width / 2; x < field_width/2; x += 30 {
-				append(&g_mem.pivots, pivot_make(Vec2{f32(x), f32(y)}, 2.0))
+				append(&g_mem.pivots, pivot_make(g_mem, Vec2{f32(x), f32(y)}, 2.0))
 			}
 		}
 	}
 	
 	
-	g_mem.left_wall = wall_make(Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
-	g_mem.right_wall = wall_make(Rect{field_width/2, -field_height/2, wall_thickness, field_height})
-	g_mem.top_wall = wall_make(Rect{-field_width/2, field_height/2, field_width, wall_thickness})
-	g_mem.bottom_wall = wall_make(Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
+	g_mem.left_wall = wall_make(g_mem, Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
+	g_mem.right_wall = wall_make(g_mem, Rect{field_width/2, -field_height/2, wall_thickness, field_height})
+	g_mem.top_wall = wall_make(g_mem, Rect{-field_width/2, field_height/2, field_width, wall_thickness})
+	g_mem.bottom_wall = wall_make(g_mem, Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
 
-	fmt.println("init finished")
+	g_mem.pivots = make([dynamic]Pivot)
+
+	log.info("g_mem_reset() complete.")
+	return g_mem
 }
 
-wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
+wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 	w := Wall {
 		rect = rect,
 		rot = rot,
@@ -630,7 +806,7 @@ wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	body_def := b2.DefaultBodyDef()
 	body_def.position = b2.Vec2{rect.x + rect.w/2, rect.y + rect.h/2}
 	body_def.rotation = b2.MakeRot(rot)
-	w.body = b2.CreateBody(physics_world(), body_def)
+	w.body = b2.CreateBody(physics_world(g_mem), body_def)
 
 	box := b2.MakeBox((rect.w/2), (rect.h/2))
 	shape_def := b2.DefaultShapeDef()
@@ -644,7 +820,7 @@ wall_make :: proc(rect : Rect, rot : f32 = 0.0) -> Wall {
 	return w
 }
 
-pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
+pivot_make :: proc(g_mem: ^Game_Memory, pos : Vec2, radius : f32) -> Pivot {
 	pivot := Pivot {
 		pos = pos,
 		radius = radius,
@@ -652,7 +828,7 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 
 	body_def := b2.DefaultBodyDef()
 	body_def.position = pos
-	pivot.body = b2.CreateBody(physics_world(), body_def)
+	pivot.body = b2.CreateBody(physics_world(g_mem), body_def)
 
 	circle := b2.Circle{radius=radius}
 	shape_def := b2.DefaultShapeDef()
@@ -669,24 +845,25 @@ pivot_make :: proc(pos : Vec2, radius : f32) -> Pivot {
 // TODO: Add this cleanup stuff from the imgui examples main.cpp
 // TODO: Add cleanup from imgui example for sdl renderer 3
 
-shutdown :: proc() {
-	log.info("shutdown...")
+g_mem_shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
+	log.info("g_mem_shutdown...")
 	//mem.free(g_mem.font.recs)
 	//mem.free(g_mem.font.glyphs)
 	mem.delete(g_mem.pivots)
 	free(g_mem)
 
-	when RENDERER_SDL_GPU {
-	} else {
-	}
+when MEMORY_TRACKING {
+	mem_tracking.reset_tracking_allocator(&platform.game_memory_tracking.tracking_allocator)
+}
+	log.info("g_mem_shutdown complete")
 
-	log.info("shutdown complete")
 }
 
 im_shutdown :: proc() {
+	context = g_context
 	log.info("im_shutdown...")
 	when RENDERER_SDL_GPU {
-		SDL_WaitForGPUIdle(g_gpu_device)
+		SDL_WaitForGPUIdle(platform.gpu_device)
 		ImGui_ImplSDL3_Shutdown()
 		ImGui_ImplSDLGPU3_Shutdown()
 		im.DestroyContext()
@@ -699,19 +876,19 @@ im_shutdown :: proc() {
 	log.info("im_shutdown complete.")
 }
 
-shutdown_window :: proc() {
+sdl_shutdown :: proc(platform : ^Platform_State, platform_allocator : runtime.Allocator) {
+	context.allocator = platform_allocator
 	log.info("shutdown sdl and window...")
-	im_shutdown()
 
 	// Shutdown sdl
 	when RENDERER_SDL_GPU {
-		sdl.ReleaseWindowFromGPUDevice(g_gpu_device, g_mem.window)
-		sdl.DestroyGPUDevice(g_gpu_device)
-		sdl.DestroyWindow(g_mem.window)
+		sdl.ReleaseWindowFromGPUDevice(platform.gpu_device, platform.window)
+		sdl.DestroyGPUDevice(platform.gpu_device)
+		sdl.DestroyWindow(platform.window)
 		sdl.Quit()
 	} else {
-		sdl.DestroyRenderer(g_mem.renderer)
-		sdl.DestroyWindow(g_mem.window)
+		sdl.DestroyRenderer(platform.renderer)
+		sdl.DestroyWindow(platform.window)
 		sdl.Quit()
 	}
 	log.info("shutdown sdl and window complete")

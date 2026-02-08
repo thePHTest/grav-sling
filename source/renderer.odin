@@ -65,12 +65,12 @@ point_world_to_screen :: proc(p : Vec2, camera : Camera2D, screen : Vec2) -> Vec
 	return result
 }
 
-render_rect :: proc(render_state : Render_State, width : f32, height : f32, camera : Camera2D, screen : Vec2, alpha : f64) {
+render_rect :: proc(renderer : ^sdl.Renderer, render_state : Render_State, width : f32, height : f32, camera : Camera2D, screen : Vec2, alpha : f64) {
 	interpolated_transform := render_state_interpolate(render_state, alpha)
 	if interpolated_transform.rot == 0.0 {
 		world_rect := render_transform_to_rect(interpolated_transform, width, height)
 		screen_rect := rect_world_to_screen(world_rect, camera, screen)
-		sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&screen_rect)
+		sdl.RenderFillRect(renderer, cast(^sdl.FRect)&screen_rect)
 	} else {
 		// Get the 4 corners
 		// TODO: Just store the quat on the Render_State transform. Avoid having to do extra cos and sin
@@ -110,21 +110,21 @@ render_rect :: proc(render_state : Render_State, width : f32, height : f32, came
 			0, 1, 2,
 			0, 2, 3,
 		}
-		sdl.RenderGeometry(g_mem.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+		sdl.RenderGeometry(renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 	}
 }
 
-render_line :: proc(a,b : Vec2, camera : Camera2D, screen : Vec2) {
-	sdl.RenderLine(g_mem.renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
+render_line :: proc(renderer : ^sdl.Renderer, a,b : Vec2, camera : Camera2D, screen : Vec2) {
+	sdl.RenderLine(renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
 camera, screen)))
 }
 
-render_capsule :: proc(render_state : Render_State, capsule : b2.Capsule, camera : Camera2D, screen : Vec2, alpha : f64) {
+render_capsule :: proc(renderer : ^sdl.Renderer, render_state : Render_State, capsule : b2.Capsule, camera : Camera2D, screen : Vec2, alpha : f64) {
 	width := capsule.radius * 2.0
 	height := la.distance(capsule.center1, capsule.center2)
-	render_rect(render_state, width, height, camera, screen, alpha)
+	render_rect(renderer, render_state, width, height, camera, screen, alpha)
 
-	sdl.SetRenderDrawColorFloat(g_mem.renderer, 0.7, 0.0, 0.7, 1.0)
+	sdl.SetRenderDrawColorFloat(renderer, 0.7, 0.0, 0.7, 1.0)
 	interpolated_transform := render_state_interpolate(render_state, alpha)
 	rot_mat : matrix[2,2]f32 = {
 		m.cos(interpolated_transform.rot), m.sin(interpolated_transform.rot),
@@ -134,11 +134,11 @@ render_capsule :: proc(render_state : Render_State, capsule : b2.Capsule, camera
 	circle1_pos := (interpolated_transform.pos) + (capsule.center1 * rot_mat)
 	circle2_pos := interpolated_transform.pos + (capsule.center2 * rot_mat)
 
-	render_circle_filled(circle1_pos, capsule.radius, camera, screen)
-	render_circle_filled(circle2_pos, capsule.radius, camera, screen)
+	render_circle_filled(renderer, circle1_pos, capsule.radius, camera, screen)
+	render_circle_filled(renderer, circle2_pos, capsule.radius, camera, screen)
 }
 
-render_circle_filled :: proc(c : Vec2, r : f32, camera : Camera2D, screen : Vec2) {
+render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera : Camera2D, screen : Vec2) {
 	screen_c := point_world_to_screen(c, camera, screen)
 	screen_r := r * camera.zoom
 
@@ -176,5 +176,5 @@ render_circle_filled :: proc(c : Vec2, r : f32, camera : Camera2D, screen : Vec2
 		indices[base + 2] = i32(idx + 2)
 	}
 
-	sdl.RenderGeometry(g_mem.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+	sdl.RenderGeometry(renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 }

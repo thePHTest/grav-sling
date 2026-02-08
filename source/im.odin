@@ -3,7 +3,7 @@ package game
 import sdl "vendor:sdl3"
 import im "deps:odin-imgui"
 
-im_render :: proc() {
+im_render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	// Start the Dear ImGui frame
 	when RENDERER_SDL_GPU {
 		ImGui_ImplSDLGPU3_NewFrame()
@@ -68,10 +68,10 @@ im_render :: proc() {
 	} else {
 		im.Render()
 		io := im.GetIO()
-        sdl.SetRenderScale(g_mem.renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
-        sdl.SetRenderDrawColorFloat(g_mem.renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
+        sdl.SetRenderScale(platform.renderer, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y)
+        sdl.SetRenderDrawColorFloat(platform.renderer, clear_color.x, clear_color.y, clear_color.z, 1.0)
         //sdl.RenderClear(g_mem.renderer)
-        ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), g_mem.renderer)
+        ImGui_ImplSDLRenderer3_RenderDrawData(im.GetDrawData(), platform.renderer)
 	}
 
 

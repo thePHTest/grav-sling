@@ -66,7 +66,7 @@ avatar_im_render :: proc(avatar : ^Avatar) {
 	im.End()
 }
 
-avatar_make :: proc(pos: Vec2, aim_range: f32) -> Avatar {
+avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	bd := b2.DefaultBodyDef()
 	bd.type = .dynamicBody
 	bd.position = pos
@@ -128,31 +128,31 @@ smoothstart5 :: proc(t: f32) -> f32 {
 	return t * t * t * t * t
 }
 
-avatar_render :: proc(avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : f64) {
-	sdl.SetRenderDrawColor(g_mem.renderer, 0, 0, 255, 255)
+avatar_render :: proc(renderer : ^sdl.Renderer, avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : f64) {
+	sdl.SetRenderDrawColor(renderer, 0, 0, 255, 255)
 	capsule_shape := b2.Shape_GetCapsule(avatar.shape)
 	//width := capsule_shape.radius * 2.0
 	//height := la.distance(capsule_shape.center1, capsule_shape.center2) + capsule_shape.radius*2.0
 	//render_rect(avatar.render_state, width, height, camera, screen, alpha)
 
-	render_capsule(avatar.render_state, capsule_shape, camera, screen, alpha)
+	render_capsule(renderer, avatar.render_state, capsule_shape, camera, screen, alpha)
 
 	// Try sdl rect render
 	//source := atlas_textures[.Avatar].rect
 	//dest := draw_dest_rect(avatar.render_state, source, camera, screen, alpha)
-	//sdl.RenderFillRect(g_mem.renderer, cast(^sdl.FRect)&dest)
+	//sdl.RenderFillRect(renderer, cast(^sdl.FRect)&dest)
 
 	pos := body_pos(avatar.body)
 	aim_pos := pos + avatar.aim_range * avatar.aim_direction
 	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
-	render_line(pos, aim_pos, camera, screen)
+	render_line(renderer, pos, aim_pos, camera, screen)
 	if avatar.distance_joint_pivot_id != {} {
 		pivot_pos := body_pos(avatar.distance_joint_pivot_id)
-		render_line(pos, pivot_pos, camera, screen)
+		render_line(renderer, pos, pivot_pos, camera, screen)
 	}
 
 	if avatar.pivot.body != {} {
-		pivot_render(avatar.pivot, camera, screen)
+		pivot_render(renderer, avatar.pivot, camera, screen)
 	}
 
 
@@ -237,7 +237,7 @@ avatar_make_distance_joint :: proc(avatar: ^Avatar, other_body_id: b2.BodyId, ph
 	avatar.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
-avatar_update :: proc(avatar: ^Avatar, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
+avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(avatar.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
 	contact_data = b2.Body_GetContactData(avatar.body, contact_data)
@@ -326,7 +326,7 @@ avatar_update :: proc(avatar: ^Avatar, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot
 					}
 				}
 			} else if avatar.aim_direction != {} {
-				avatar.pivot = pivot_make(avatar_pos + avatar.aim_direction * avatar.aim_range, 2.0)
+				avatar.pivot = pivot_make(g_mem, avatar_pos + avatar.aim_direction * avatar.aim_range, 2.0)
 				avatar_make_distance_joint(avatar, avatar.pivot.body, physics_world)
 			}
 		

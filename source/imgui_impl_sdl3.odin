@@ -538,8 +538,8 @@ ImGui_ImplSDL3_Init :: proc(window: ^sdl.Window, renderer: ^sdl.Renderer, sdl_gl
 	// (ImGuiBackendFlags_PlatformHasViewports and ImGuiBackendFlags_HasParentViewport may be set just below)
     // (ImGuiBackendFlags_HasMouseHoveredViewport is set dynamically in our _NewFrame function)
 
-	bd.window = g_mem.window
-	bd.window_id = sdl.GetWindowID(g_mem.window)
+	bd.window = window
+	bd.window_id = sdl.GetWindowID(window)
 	bd.renderer = renderer
 // SDL on Linux/OSX doesn't report events for unfocused windows (see https://github.com/ocornut/imgui/issues/4960)
     // We will use 'MouseCanReportHoveredViewport' to set 'ImGuiBackendFlags_HasMouseHoveredViewport' dynamically each frame.
