@@ -3,7 +3,6 @@
                     { "name": "vendor", "path": "..\\Odin\\vendor" },
 					{ "name": "base", "path": "..\\Odin\\base" },
                     { "name": "main", "path": ".\\source" },
-					{ "name": "shared", "path": ".\\src\\shared" },
 					{ "name": "deps", "path": ".\\deps" }],
     "thread_pool_count": 4,
     "enable_document_symbols": true,

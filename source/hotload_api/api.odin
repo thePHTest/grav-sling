@@ -86,6 +86,7 @@ unload_game_api :: proc(api: ^Game_API) {
 
 
 Hotload_Result :: enum {
+	Launch,
 	Hotload,
 	Full_Reset,
 	Load_Failed,
@@ -98,7 +99,7 @@ Game_API :: struct {
 	platform_init : proc(platform_allocator : ^mem.Allocator) -> rawptr,
 	mem_reset: proc(raw_platform_memory : rawptr) -> rawptr,
 	reset: proc(),
-	hotload_main_loop: proc(raw_platform_memory : rawptr, raw_game_memory : rawptr, game_api : Game_API) -> (Game_API, Hotload_Result),
+	hotload_main_loop: proc(raw_hotload_memory : rawptr, game_api : Game_API, hotload_result : Hotload_Result, platform_context : runtime.Context) -> (rawptr, Game_API, Hotload_Result),
 	memory_size: proc() -> int,
 	unload: proc(),
 	shutdown: proc(raw_game_memory : rawptr),
