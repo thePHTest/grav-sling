@@ -237,6 +237,7 @@ Game_Memory :: struct {
 	physics_world: b2.WorldId,
 	starting_pos: Vec2,
 	avatar: Avatar,
+	ball: Ball,
 	
 	pivots: [dynamic]Pivot,
 	
@@ -270,7 +271,7 @@ game_camera :: proc() -> Camera2D {
 	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = 20.0,
+		zoom = 10.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
@@ -460,11 +461,13 @@ update :: proc(g_mem : ^Game_Memory) {
 	}
 	b2.World_Step(physics_world(g_mem), f32(g_mem.sim_ctx.dt), 4)	
 	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.pivots, g_mem.physics_world)
+	ball_update(&g_mem.ball)
 }
 
 Collision_Category :: enum u32 {
 	Wall,
 	Avatar,
+	Ball,
 	Pivot,
 }
 
@@ -480,7 +483,7 @@ pivot_render :: proc(renderer : ^sdl.Renderer, pivot: Pivot, camera : Camera2D, 
 
 world_render :: proc(g_mem : Game_Memory, renderer : ^sdl.Renderer, camera : Camera2D, screen : Vec2, alpha : f64) {
 	// Draw the origin
-	render_circle_filled(renderer, {}, 1.0, camera, screen)
+	//render_circle_filled(renderer, {}, 1.0, camera, screen)
 
 
 	avatar_render(renderer, g_mem.avatar, camera, screen, alpha)
@@ -492,6 +495,8 @@ world_render :: proc(g_mem : Game_Memory, renderer : ^sdl.Renderer, camera : Cam
 	for pivot in g_mem.pivots {
 		pivot_render(renderer, pivot, camera, screen)
 	}
+
+	ball_render(renderer, g_mem.ball, camera, screen, alpha)
 	
 	// Origin
 	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
@@ -753,6 +758,7 @@ when MEMORY_TRACKING {
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
 	g_mem.avatar = avatar_make(g_mem, {10,10}, 30.0)
+	g_mem.ball = ball_make(g_mem, {0, 0})
 	
 	field_width ::  190
 	field_height :: 106 
@@ -794,7 +800,7 @@ wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 	shape_def.friction = 0.7
 	shape_def.filter = {
 		categoryBits = u32(bit_set[Collision_Category] { .Wall }),
-		maskBits = u32(bit_set[Collision_Category] { .Avatar }),
+		maskBits = u32(bit_set[Collision_Category] { .Avatar, .Ball }),
 	}
 
 	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)

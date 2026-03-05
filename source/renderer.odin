@@ -119,6 +119,11 @@ render_line :: proc(renderer : ^sdl.Renderer, a,b : Vec2, camera : Camera2D, scr
 camera, screen)))
 }
 
+render_circle :: proc(renderer: ^sdl.Renderer, render_state : Render_State, circle : b2.Circle, camera : Camera2D, screen : Vec2, alpha : f64) {
+	interpolated_transform := render_state_interpolate(render_state, alpha)
+	render_circle_filled(renderer, interpolated_transform.pos, circle.radius, camera, screen)
+}
+
 render_capsule :: proc(renderer : ^sdl.Renderer, render_state : Render_State, capsule : b2.Capsule, camera : Camera2D, screen : Vec2, alpha : f64) {
 	width := capsule.radius * 2.0
 	height := la.distance(capsule.center1, capsule.center2)

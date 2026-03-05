@@ -33,9 +33,6 @@ Avatar :: struct {
 	squish_direction: Vec2,
 	squish_start: f64,
 	
-	jet_vertical_count : int,
-	jet_horizontal_count : int,
-	
 	aim_range: f32,
 	aim_direction: Vec2,
 
@@ -86,7 +83,7 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	sd.restitution = 0.2
 	sd.filter = {
 		categoryBits = u32(bit_set[Collision_Category] { .Avatar }),
-		maskBits = u32(bit_set[Collision_Category] { .Wall }),
+		maskBits = u32(bit_set[Collision_Category] { .Wall , .Ball}),
 	}
 
 	capsule := b2.Capsule {
@@ -275,27 +272,7 @@ avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, 
 
 		return result
 	}()
-	// Jet lash controls
-	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_UP) {
-	//	avatar.jet_horizontal_count = 0
-	//	avatar.jet_vertical_count = clamp(avatar.jet_vertical_count + 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET) 
-	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_DOWN) {
-	//	avatar.jet_horizontal_count = 0
-	//	avatar.jet_vertical_count = clamp(avatar.jet_vertical_count - 1, -MAX_VERTICAL_JET, MAX_VERTICAL_JET)
-	//}
-	//
-	//if rl.IsGamepadButtonPressed(0, .LEFT_FACE_LEFT) {
-	//	avatar.jet_vertical_count = 0
-	//	avatar.jet_horizontal_count = clamp(avatar.jet_horizontal_count - 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
-	//} else if rl.IsGamepadButtonPressed(0, .LEFT_FACE_RIGHT) {
-	//	avatar.jet_vertical_count = 0
-	//	avatar.jet_horizontal_count = clamp(avatar.jet_horizontal_count + 1, -MAX_HORIZONTAL_JET, MAX_HORIZONTAL_JET)
-	//}
-	//dir := la.normalize0(Vec2{f32(math.sign(avatar.jet_horizontal_count)), f32(math.sign(avatar.jet_vertical_count))})
-	//force : f32 = 200.0
-	//jet_count := math.abs(avatar.jet_horizontal_count) + math.abs(avatar.jet_vertical_count)
-	//b2.Body_ApplyForceToCenter(avatar.body, force*f32(jet_count)*dir, true)
-	
+
 	b2.Body_ApplyForceToCenter(avatar.body, avatar.move_force*dir, true)
 	//b2.Body_ApplyLinearImpulseToCenter(avatar.body, avatar.move_force*dir, true)
 	
