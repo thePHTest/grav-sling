@@ -154,7 +154,7 @@ render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera
 	// Center vertex
 	vertices[0] = sdl.Vertex {
 		position = cast(sdl.FPoint)screen_c,
-		color = {1.0, 0.0, 0.0, 1.0},
+		color = {0.0, 0.0, 1.0, 1.0},
 		tex_coord = {},
 	}
 

@@ -448,13 +448,10 @@ EScancode :: enum {
 	// COUNT = 512 /**< not a key, just marks the number of scancodes for array bounds */
 }
 
-Key_State :: struct {
-	// TODO: Fill this out and bit pack it
-	pressed : bool,
-}
-
 Keyboard_State :: struct {
-	keys : #sparse[EScancode]Key_State,
+	keys_down : #sparse[EScancode]bool,
+	keys_pressed : #sparse[EScancode]bool,
+	keys_released : #sparse[EScancode]bool,
 }
 g_keyboard : Keyboard_State
 
@@ -467,7 +464,11 @@ gamepad_axis_normalize :: proc(gamepad : Gamepad_State, axis : EGamepadAxis) -> 
 }
 
 keyboard_is_key_pressed :: proc(keyboard : Keyboard_State, key : EScancode) -> bool {
-	return keyboard.keys[key].pressed
+	return keyboard.keys_pressed[key]
+}
+
+keyboard_is_key_down :: proc(keyboard : Keyboard_State, key : EScancode) -> bool {
+	return keyboard.keys_down[key]
 }
 
 

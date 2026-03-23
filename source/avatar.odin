@@ -41,6 +41,9 @@ Avatar :: struct {
 	distance_joint_pivot_id: b2.BodyId,
 	distance_joint: b2.JointId,
 
+	ball_posession: bool,
+	ball_distance_joint: b2.JointId,
+
 	render_state : Render_State,
 
 	// Editor vars
@@ -234,6 +237,39 @@ avatar_make_distance_joint :: proc(avatar: ^Avatar, other_body_id: b2.BodyId, ph
 	avatar.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
+avatar_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.WorldId) {
+	log.info("Possess Ball")
+	// Distance joint
+	joint_def := b2.DefaultDistanceJointDef()
+	joint_def.bodyIdA = avatar.body
+	joint_def.bodyIdB = ball.body
+
+	joint_def.localAnchorA = Vec2{0, 0}
+	joint_def.localAnchorB = Vec2{0, 0}
+
+	anchor_a := b2.Body_GetWorldPoint(avatar.body, joint_def.localAnchorA)
+	anchor_b := b2.Body_GetWorldPoint(ball.body, joint_def.localAnchorB)
+	joint_def.length = b2.Distance(anchor_a, anchor_b)
+	joint_def.enableLimit = true
+	joint_def.minLength = 4.0
+	joint_def.maxLength = max(joint_def.length + 5.0, joint_def.minLength + 1.0)
+	joint_def.collideConnected = true
+
+	// TODO: hertz value here depends on the update frequency.
+	// TODO: Tune these values
+	joint_def.enableSpring = true
+	joint_def.hertz = 1.0
+	joint_def.dampingRatio = 1.0
+
+	avatar.ball_distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
+}
+
+avatar_depossess_ball :: proc(avatar: ^Avatar) {
+	log.info("Depossess Ball")
+	b2.DestroyJoint(avatar.ball_distance_joint)
+	avatar.ball_distance_joint = {}
+}
+
 avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, pivots: [dynamic]Pivot, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(avatar.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
@@ -247,23 +283,31 @@ avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, 
 		}
 	}
 
+	if keyboard_is_key_pressed(g_keyboard, .SPACE) {
+		if avatar.ball_distance_joint == {} {
+			avatar_possess_ball(avatar, &g_mem.ball, physics_world)
+		} else {
+			avatar_depossess_ball(avatar)
+		}
+	}
+
 	deadzone :: 0.1
 	// Apply force in WASD direction controls
 
 	dir : Vec2 = proc() -> Vec2 {
 		result : Vec2
-		if keyboard_is_key_pressed(g_keyboard, .W) {
+		if keyboard_is_key_down(g_keyboard, .W) {
 			result.y = 1.0
-		} else if keyboard_is_key_pressed(g_keyboard, .S) {
+		} else if keyboard_is_key_down(g_keyboard, .S) {
 			result.y = -1.0
 		} else {
 			result.y = gamepad_axis_normalize(g_gamepad, .LEFTY) * -1
 			result.y = apply_deadzone(deadzone, result.y)
 		}
 		
-		if keyboard_is_key_pressed(g_keyboard, .A) {
+		if keyboard_is_key_down(g_keyboard, .A) {
 			result.x = -1.0
-		} else if keyboard_is_key_pressed(g_keyboard, .D) {
+		} else if keyboard_is_key_down(g_keyboard, .D) {
 			result.x = 1.0
 		} else {
 			result.x = gamepad_axis_normalize(g_gamepad, .LEFTX)

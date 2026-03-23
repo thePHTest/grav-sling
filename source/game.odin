@@ -295,10 +295,6 @@ physics_world :: proc(g_mem : ^Game_Memory) -> b2.WorldId {
 }
 
 poll_input :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
-	// Reset pressed/released
-	g_gamepad.buttons_pressed = {}
-	g_gamepad.buttons_released = {}
-
 	// Poll and handle events (inputs, window resize, etc.)
 	// You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
 	// - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
@@ -332,7 +328,7 @@ poll_input :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 				g_gamepad.buttons_pressed[EGamepadButton(event.gbutton.button)] = event.gbutton.down 
 				g_gamepad.buttons_down[EGamepadButton(event.gbutton.button)] = event.gbutton.down 
 			} else {
-				g_gamepad.buttons_released[EGamepadButton(event.gbutton.button)] = event.gbutton.down 
+				g_gamepad.buttons_released[EGamepadButton(event.gbutton.button)] = true 
 				g_gamepad.buttons_down[EGamepadButton(event.gbutton.button)] = event.gbutton.down 
 			}
 
@@ -342,8 +338,17 @@ poll_input :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 			case .KEY_DOWN:
 			fallthrough
 			case .KEY_UP:
-			log.info(event.key)
-			g_keyboard.keys[EScancode(event.key.scancode)].pressed = event.key.down
+			if event.key.down {
+				if event.key.scancode == .SPACE {
+					log.info("SPACE down")
+				}
+				// TODO> Better way to handle key state? Maybe have a repeat flag on a KeyState etc
+				g_keyboard.keys_pressed[EScancode(event.key.scancode)] = event.key.down && !event.key.repeat
+				g_keyboard.keys_down[EScancode(event.key.scancode)] = event.key.down
+			} else {
+				g_keyboard.keys_released[EScancode(event.key.scancode)] = true 
+				g_keyboard.keys_down[EScancode(event.key.scancode)] = event.key.down
+			}
 		}
 	}
 
@@ -398,6 +403,14 @@ when MEMORY_TRACKING {
 }
 }
 
+clear_edge_events :: proc() {
+	// TODO: Is this the best way to represent not pressed this tick?
+	g_gamepad.buttons_pressed = {}
+	g_gamepad.buttons_released = {}
+	g_keyboard.keys_pressed = {}
+	g_keyboard.keys_released = {}
+}
+
 update_and_render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	g_mem.sim_ctx.frame_tick_num = 0
 
@@ -413,6 +426,7 @@ update_and_render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 
 	for g_mem.sim_ctx.accumulator >= g_mem.sim_ctx.dt {
 		update(g_mem)
+		clear_edge_events()
 		g_mem.sim_ctx.t += g_mem.sim_ctx.dt
 		g_mem.sim_ctx.accumulator -= g_mem.sim_ctx.dt
 		g_mem.sim_ctx.tick_num += 1
@@ -455,10 +469,6 @@ show_demo_window := false
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc(g_mem : ^Game_Memory) {
-	if g_mem.sim_ctx.frame_tick_num > 0 {
-		// TODO: Is this the best way to represent not pressed this tick?
-		g_gamepad.buttons_pressed = {}
-	}
 	b2.World_Step(physics_world(g_mem), f32(g_mem.sim_ctx.dt), 4)	
 	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.pivots, g_mem.physics_world)
 	ball_update(&g_mem.ball)
@@ -757,8 +767,9 @@ when MEMORY_TRACKING {
 	world_def.enableContinous = true
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
-	g_mem.avatar = avatar_make(g_mem, {10,10}, 30.0)
+	g_mem.avatar = avatar_make(g_mem, {2,2}, 30.0)
 	g_mem.ball = ball_make(g_mem, {0, 0})
+	avatar_possess_ball(&g_mem.avatar, &g_mem.ball, g_mem.physics_world)
 	
 	field_width ::  190
 	field_height :: 106 
