@@ -271,7 +271,7 @@ game_camera :: proc() -> Camera2D {
 	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = 10.0,
+		zoom = 20.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
@@ -481,32 +481,33 @@ Collision_Category :: enum u32 {
 	Pivot,
 }
 
-wall_render :: proc(renderer : ^sdl.Renderer, wall : Wall, camera : Camera2D, screen : Vec2) {
-	screen_rect := rect_world_to_screen(wall.rect, camera, screen)
-	sdl.SetRenderDrawColor(renderer, 0, 255, 0, 255)
-	sdl.RenderFillRect(renderer, cast(^sdl.FRect)&screen_rect)
+wall_render :: proc(wall : Wall, ref_def: Ref_Def) {
+	// TODO:  Maybe put a render_state on the static wall and use render_rect(...) instead?
+	screen_rect := rect_world_to_screen(wall.rect, ref_def.camera, ref_def.screen)
+	sdl.SetRenderDrawColor(ref_def.renderer, 0, 255, 0, 255)
+	sdl.RenderFillRect(ref_def.renderer, cast(^sdl.FRect)&screen_rect)
 }
 
-pivot_render :: proc(renderer : ^sdl.Renderer, pivot: Pivot, camera : Camera2D, screen : Vec2) {
-	render_circle_filled(renderer, pivot.pos, pivot.radius, camera, screen)
+pivot_render :: proc(pivot: Pivot, ref_def: Ref_Def) {
+	pivot_color :: [4]u8{128, 128, 0, 255}
+	render_circle_filled(ref_def, pivot.pos, pivot.radius, pivot_color)
 }
 
-world_render :: proc(g_mem : Game_Memory, renderer : ^sdl.Renderer, camera : Camera2D, screen : Vec2, alpha : f64) {
+world_render :: proc(g_mem : Game_Memory, ref_def : Ref_Def) {
 	// Draw the origin
 	//render_circle_filled(renderer, {}, 1.0, camera, screen)
 
-
-	avatar_render(renderer, g_mem.avatar, camera, screen, alpha)
-	wall_render(renderer, g_mem.left_wall, camera, screen)
-	wall_render(renderer, g_mem.right_wall, camera, screen)
-	wall_render(renderer, g_mem.top_wall, camera, screen)
-	wall_render(renderer, g_mem.bottom_wall, camera, screen)
+	avatar_render(g_mem.avatar, ref_def)
+	wall_render(g_mem.left_wall, ref_def)
+	wall_render(g_mem.right_wall, ref_def)
+	wall_render(g_mem.top_wall, ref_def)
+	wall_render(g_mem.bottom_wall, ref_def)
 	
 	for pivot in g_mem.pivots {
-		pivot_render(renderer, pivot, camera, screen)
+		pivot_render(pivot, ref_def)
 	}
 
-	ball_render(renderer, g_mem.ball, camera, screen, alpha)
+	ball_render(g_mem.ball, ref_def)
 	
 	// Origin
 	//rl.DrawCircle(0,0, 0.5 + 0.5*((1.0 + math.sin(f32(rl.GetTime()))) / 2.0), rl.BLACK)
@@ -525,7 +526,15 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 
 	sdl.SetRenderDrawColor(platform.renderer, 0, 0, 0, 255)
 	sdl.RenderClear(platform.renderer)
-	world_render(g_mem^, platform.renderer, game_cam, screen, alpha)
+
+	// Construct the Ref_Def
+	ref_def : Ref_Def = {
+		platform.renderer,
+		game_cam,
+		screen,
+		alpha,
+	}
+	world_render(g_mem^, ref_def)
 	im_render(platform, g_mem)
 	sdl.RenderPresent(platform.renderer)
 

@@ -1,7 +1,6 @@
 package game
 
 import b2 "box2d"
-import sdl "vendor:sdl3"
 
 Ball :: struct {
 	body: b2.BodyId,
@@ -48,9 +47,9 @@ ball_update :: proc(ball: ^Ball) {
 	ball.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(ball.body)
 }
 
-ball_render :: proc(renderer : ^sdl.Renderer, ball: Ball, camera : Camera2D, screen : Vec2, alpha : f64) {
-	sdl.SetRenderDrawColor(renderer, 0, 0, 255, 255)
+ball_render :: proc(ball: Ball, ref_def: Ref_Def) {
 	circle_shape := b2.Shape_GetCircle(ball.shape)
 
-	render_circle(renderer, ball.render_state, circle_shape, camera, screen, alpha)
+	ball_color :: [4]u8{255, 0, 0, 255}
+	render_circle(ref_def, ball.render_state, circle_shape, ball_color)
 }

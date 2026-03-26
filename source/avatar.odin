@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import im "deps:odin-imgui"
-import sdl "vendor:sdl3"
 import la "core:math/linalg"
 
 _ :: fmt
@@ -128,14 +127,14 @@ smoothstart5 :: proc(t: f32) -> f32 {
 	return t * t * t * t * t
 }
 
-avatar_render :: proc(renderer : ^sdl.Renderer, avatar: Avatar, camera : Camera2D, screen : Vec2, alpha : f64) {
-	sdl.SetRenderDrawColor(renderer, 0, 0, 255, 255)
+avatar_render :: proc(avatar: Avatar, ref_def: Ref_Def) {
 	capsule_shape := b2.Shape_GetCapsule(avatar.shape)
 	//width := capsule_shape.radius * 2.0
 	//height := la.distance(capsule_shape.center1, capsule_shape.center2) + capsule_shape.radius*2.0
 	//render_rect(avatar.render_state, width, height, camera, screen, alpha)
 
-	render_capsule(renderer, avatar.render_state, capsule_shape, camera, screen, alpha)
+	avatar_color :: [4]u8{0, 0, 255, 255}
+	render_capsule(ref_def, avatar.render_state, capsule_shape, avatar_color)
 
 	// Try sdl rect render
 	//source := atlas_textures[.Avatar].rect
@@ -145,14 +144,16 @@ avatar_render :: proc(renderer : ^sdl.Renderer, avatar: Avatar, camera : Camera2
 	pos := body_pos(avatar.body)
 	aim_pos := pos + avatar.aim_range * avatar.aim_direction
 	//rl.DrawLineEx(vec2_flip(pos), vec2_flip(aim_pos), 0.5, rl.RED)
-	render_line(renderer, pos, aim_pos, camera, screen)
+	aim_color :: [4]u8{128, 0, 128, 255}
+	render_line(ref_def, pos, aim_pos, aim_color)
 	if avatar.distance_joint_pivot_id != {} {
 		pivot_pos := body_pos(avatar.distance_joint_pivot_id)
-		render_line(renderer, pos, pivot_pos, camera, screen)
+		pivot_joint_color :: [4]u8{0, 128, 0, 255}
+		render_line(ref_def, pos, pivot_pos, pivot_joint_color)
 	}
 
 	if avatar.pivot.body != {} {
-		pivot_render(renderer, avatar.pivot, camera, screen)
+		pivot_render(avatar.pivot, ref_def)
 	}
 
 

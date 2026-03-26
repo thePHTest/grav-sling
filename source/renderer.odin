@@ -14,8 +14,9 @@ SOURCE_SCALE :: 10
 
 // TODO: Use Ref_Def everywhere
 Ref_Def :: struct {
+	renderer: ^sdl.Renderer,
 	camera : Camera2D,
-	viewport : Vec2,
+	screen : Vec2,
 	// The alpha representing the time between the previous and current physics tick. Is there a better name for this?
 	alpha : f64,
 }
@@ -65,12 +66,13 @@ point_world_to_screen :: proc(p : Vec2, camera : Camera2D, screen : Vec2) -> Vec
 	return result
 }
 
-render_rect :: proc(renderer : ^sdl.Renderer, render_state : Render_State, width : f32, height : f32, camera : Camera2D, screen : Vec2, alpha : f64) {
-	interpolated_transform := render_state_interpolate(render_state, alpha)
+render_rect :: proc(ref_def : Ref_Def, render_state : Render_State, width : f32, height : f32, color: [4]u8) {
+	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	if interpolated_transform.rot == 0.0 {
 		world_rect := render_transform_to_rect(interpolated_transform, width, height)
-		screen_rect := rect_world_to_screen(world_rect, camera, screen)
-		sdl.RenderFillRect(renderer, cast(^sdl.FRect)&screen_rect)
+		screen_rect := rect_world_to_screen(world_rect, ref_def.camera, ref_def.screen)
+		sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+		sdl.RenderFillRect(ref_def.renderer, cast(^sdl.FRect)&screen_rect)
 	} else {
 		// Get the 4 corners
 		// TODO: Just store the quat on the Render_State transform. Avoid having to do extra cos and sin
@@ -101,7 +103,7 @@ render_rect :: proc(renderer : ^sdl.Renderer, render_state : Render_State, width
 		vertices : [4]sdl.Vertex
 		for idx in 0..<len(obb) {
 			v := &vertices[idx]
-			v.position = cast(sdl.FPoint)point_world_to_screen(obb[idx], camera, screen)
+			v.position = cast(sdl.FPoint)point_world_to_screen(obb[idx], ref_def.camera, ref_def.screen)
 			v.color = sdl.FColor{1.0, 0.0, 0.0, 1.0}
 			v.tex_coord = {}
 		}
@@ -110,27 +112,28 @@ render_rect :: proc(renderer : ^sdl.Renderer, render_state : Render_State, width
 			0, 1, 2,
 			0, 2, 3,
 		}
-		sdl.RenderGeometry(renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+		sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+		sdl.RenderGeometry(ref_def.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 	}
 }
 
-render_line :: proc(renderer : ^sdl.Renderer, a,b : Vec2, camera : Camera2D, screen : Vec2) {
-	sdl.RenderLine(renderer, expand_values(point_world_to_screen(a, camera, screen)), expand_values(point_world_to_screen(b,
-camera, screen)))
+render_line :: proc(ref_def : Ref_Def, a,b : Vec2, color: [4]u8) {
+	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+	sdl.RenderLine(ref_def.renderer, expand_values(point_world_to_screen(a, ref_def.camera, ref_def.screen)), expand_values(point_world_to_screen(b,
+ref_def.camera, ref_def.screen)))
 }
 
-render_circle :: proc(renderer: ^sdl.Renderer, render_state : Render_State, circle : b2.Circle, camera : Camera2D, screen : Vec2, alpha : f64) {
-	interpolated_transform := render_state_interpolate(render_state, alpha)
-	render_circle_filled(renderer, interpolated_transform.pos, circle.radius, camera, screen)
+render_circle :: proc(ref_def: Ref_Def, render_state : Render_State, circle : b2.Circle, color: [4]u8) {
+	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
+	render_circle_filled(ref_def, interpolated_transform.pos, circle.radius, color)
 }
 
-render_capsule :: proc(renderer : ^sdl.Renderer, render_state : Render_State, capsule : b2.Capsule, camera : Camera2D, screen : Vec2, alpha : f64) {
+render_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule : b2.Capsule, color: [4]u8) {
 	width := capsule.radius * 2.0
 	height := la.distance(capsule.center1, capsule.center2)
-	render_rect(renderer, render_state, width, height, camera, screen, alpha)
+	render_rect(ref_def, render_state, width, height, color)
 
-	sdl.SetRenderDrawColorFloat(renderer, 0.7, 0.0, 0.7, 1.0)
-	interpolated_transform := render_state_interpolate(render_state, alpha)
+	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	rot_mat : matrix[2,2]f32 = {
 		m.cos(interpolated_transform.rot), m.sin(interpolated_transform.rot),
 		-m.sin(interpolated_transform.rot), m.cos(interpolated_transform.rot),
@@ -139,11 +142,13 @@ render_capsule :: proc(renderer : ^sdl.Renderer, render_state : Render_State, ca
 	circle1_pos := (interpolated_transform.pos) + (capsule.center1 * rot_mat)
 	circle2_pos := interpolated_transform.pos + (capsule.center2 * rot_mat)
 
-	render_circle_filled(renderer, circle1_pos, capsule.radius, camera, screen)
-	render_circle_filled(renderer, circle2_pos, capsule.radius, camera, screen)
+	render_circle_filled(ref_def, circle1_pos, capsule.radius, color)
+	render_circle_filled(ref_def, circle2_pos, capsule.radius, color)
 }
 
-render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera : Camera2D, screen : Vec2) {
+render_circle_filled :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8) {
+	camera := ref_def.camera
+	screen := ref_def.screen
 	screen_c := point_world_to_screen(c, camera, screen)
 	screen_r := r * camera.zoom
 
@@ -151,10 +156,12 @@ render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera
 
 	vertices : [NUM_SEGMENTS+2]sdl.Vertex
 
+	f_color := sdl.FColor{f32(color.r) / 255.0, f32(color.g) / 255.0, f32(color.b) / 255.0, f32(color.a) / 255.0}
+
 	// Center vertex
 	vertices[0] = sdl.Vertex {
 		position = cast(sdl.FPoint)screen_c,
-		color = {0.0, 0.0, 1.0, 1.0},
+		color = f_color,
 		tex_coord = {},
 	}
 
@@ -167,7 +174,7 @@ render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera
 
 		vertices[idx + 1] = {
 			position = {x,y},
-			color = {1.0, 0.0, 0.0, 1.0},
+			color = f_color,
 			tex_coord = {},
 		}
 	}
@@ -181,5 +188,5 @@ render_circle_filled :: proc(renderer : ^sdl.Renderer, c : Vec2, r : f32, camera
 		indices[base + 2] = i32(idx + 2)
 	}
 
-	sdl.RenderGeometry(renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+	sdl.RenderGeometry(ref_def.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 }
