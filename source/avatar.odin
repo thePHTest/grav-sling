@@ -77,6 +77,7 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	bd.fixedRotation = false
 	//bd.linearDamping = 0.0
 	//bd.angularDamping = 0.0
+	bd.name = "Avatar"
 	body := b2.CreateBody(g_mem.physics_world, bd)
 
 	sd := b2.DefaultShapeDef()

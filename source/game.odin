@@ -245,6 +245,8 @@ Game_Memory :: struct {
 	top_wall: Wall,
 	bottom_wall: Wall,
 
+	b2_debug_draw : b2.DebugDraw,
+
 	time_accumulator: f32,
 
 	won: bool,
@@ -270,7 +272,7 @@ game_camera :: proc() -> Camera2D {
 	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = 20.0,
+		zoom = 40.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
@@ -523,7 +525,7 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 	//rl.ClearBackground({0, 120, 153, 255})
 	//rl.BeginMode2D(game_cam)
 
-	sdl.SetRenderDrawColor(platform.renderer, 0, 0, 0, 255)
+	sdl.SetRenderDrawColor(platform.renderer, 127, 127, 127, 255)
 	sdl.RenderClear(platform.renderer)
 
 	// Construct the Ref_Def
@@ -535,41 +537,14 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 	}
 
 	//world_render(g_mem^, ref_def)
-	//im_render(platform, g_mem)
-
 	{
-		// b2 debug draw
-		b2_debug_draw := b2.DefaultDebugDraw()
-		b2_debug_draw = {
-			DrawPolygonFcn = b2_debug_draw_polygon,
-			DrawSolidPolygonFcn = b2_debug_draw_solid_polygon,
-			DrawCircleFcn = b2_debug_draw_circle,
-			DrawSolidCircleFcn = b2_debug_draw_solid_circle,
-			DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule,
-			DrawSegmentFcn = b2_debug_draw_segment,
-			DrawTransformFcn = b2_debug_draw_transform,
-			DrawPointFcn = b2_debug_draw_point,
-			DrawStringFcn = b2_debug_draw_string,
-			drawingBounds = {},
-			useDrawingBounds = false,
-			drawShapes = true,
-			drawJoints = false,
-			drawJointExtras = false,
-			drawBounds = false,
-			drawMass = false,
-			drawBodyNames = false,
-			drawContacts = false,
-			drawGraphColors = false,
-			drawContactNormals = false,
-			drawContactImpulses = false,
-			drawContactFeatures = false,
-			drawFrictionImpulses = false,
-			drawIslands = false,
-			userContext = &ref_def,
-		}
-
-		b2.World_Draw(g_mem.physics_world, &b2_debug_draw)
+		g_mem.b2_debug_draw.userContext = &ref_def
+		b2.World_Draw(g_mem.physics_world, &g_mem.b2_debug_draw)
 	}
+
+	im_render(platform, g_mem)
+	
+	//render_debug_text(ref_def, Vec2{0.0, 0.0}, "TEST TEXT", {255, 0, 0, 255})
 
 	sdl.RenderPresent(platform.renderer)
 
@@ -834,6 +809,33 @@ when MEMORY_TRACKING {
 	g_mem.bottom_wall = wall_make(g_mem, Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
 
 	g_mem.pivots = make([dynamic]Pivot)
+
+	g_mem.b2_debug_draw = {
+		DrawPolygonFcn = b2_debug_draw_polygon,
+		DrawSolidPolygonFcn = b2_debug_draw_solid_polygon,
+		DrawCircleFcn = b2_debug_draw_circle,
+		DrawSolidCircleFcn = b2_debug_draw_solid_circle,
+		DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule,
+		DrawSegmentFcn = b2_debug_draw_segment,
+		DrawTransformFcn = b2_debug_draw_transform,
+		DrawPointFcn = b2_debug_draw_point,
+		DrawStringFcn = b2_debug_draw_string,
+		drawingBounds = {},
+		useDrawingBounds = false,
+		drawShapes = false,
+		drawJoints = false,
+		drawJointExtras = false,
+		drawBounds = false,
+		drawMass = false,
+		drawBodyNames = false,
+		drawContacts = false,
+		drawGraphColors = false,
+		drawContactNormals = false,
+		drawContactImpulses = false,
+		drawContactFeatures = false,
+		drawFrictionImpulses = false,
+		drawIslands = false,
+	}
 
 	log.info("g_mem_reset() complete.")
 	return g_mem

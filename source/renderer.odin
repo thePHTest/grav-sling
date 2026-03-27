@@ -221,6 +221,7 @@ render_circle_filled :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8)
 		indices[base + 2] = i32(idx + 2)
 	}
 
+	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
 	sdl.RenderGeometry(ref_def.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
 }
 
@@ -230,5 +231,7 @@ render_point :: proc(ref_def : Ref_Def, p: Vec2, size: f32, color: [4]u8) {
 }
 
 render_debug_text :: proc(ref_def: Ref_Def, pos: Vec2, str: string, color: [4]u8) {
-	sdl.RenderDebugText(ref_def.renderer, pos.x, pos.y, fmt.ctprintf(str))
+	screen_pos := point_world_to_screen(pos, ref_def.camera, ref_def.screen)
+	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+	sdl.RenderDebugText(ref_def.renderer, screen_pos.x, screen_pos.y, fmt.ctprintf(str))
 }
