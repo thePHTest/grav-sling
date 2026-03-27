@@ -1,6 +1,7 @@
 package game
 
 import "core:c"
+import la "core:math/linalg"
 import b2 "vendor:box2d"
 
 // Draw a closed polygon provided in CCW order.
@@ -29,9 +30,21 @@ b2_debug_draw_solid_circle :: proc "c" (transform: b2.Transform, radius: f32, co
 
 // Draw a solid capsule.
 b2_debug_draw_solid_capsule :: proc "c" (p1, p2: Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
-	//context = g_context
-	//ref_def := cast(^Ref_Def)ctx
-	//render_b2_capsule(ref_def^, transform.pos, radius, transmute([4]u8)color)
+	context = g_context
+	ref_def := cast(^Ref_Def)ctx
+
+	dist := la.distance(p1, p2)
+	v := la.normalize(p2 - p1)
+	center := p1 + v * 0.5 * dist
+
+	to_origin := p1 - center
+	rot := la.atan2(to_origin.y, to_origin.x)
+	transform := Render_Transform{
+		pos = center,
+		rot = rot,
+	}
+
+	render_capsule(ref_def^, transform, p1, p2, radius, transmute([4]u8)color)
 }
 
 // Draw a line segment.

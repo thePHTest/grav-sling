@@ -1,8 +1,8 @@
 package game
 
 import m "core:math"
-import "core:log"
 import la "core:math/linalg"
+import "core:log"
 import rl "vendor:raylib"
 import b2 "vendor:box2d"
 import sdl "vendor:sdl3"
@@ -70,18 +70,22 @@ point_world_to_screen :: proc(p : Vec2, camera : Camera2D, screen : Vec2) -> Vec
 render_b2_transform :: proc(ref_def: Ref_Def, transform: b2.Transform, color: [4]u8) {
 }
 
-render_rect :: proc(ref_def : Ref_Def, render_state : Render_State, width : f32, height : f32, color: [4]u8) {
+render_interpolate_rect :: proc(ref_def : Ref_Def, render_state : Render_State, width : f32, height : f32, color: [4]u8) {
 	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
-	if interpolated_transform.rot == 0.0 {
-		world_rect := render_transform_to_rect(interpolated_transform, width, height)
+	render_rect(ref_def, interpolated_transform, width, height, color)
+}
+
+render_rect :: proc(ref_def : Ref_Def, transform: Render_Transform, width: f32, height: f32, color: [4]u8) {
+	if transform.rot == 0.0 {
+		world_rect := render_transform_to_rect(transform, width, height)
 		screen_rect := rect_world_to_screen(world_rect, ref_def.camera, ref_def.screen)
 		sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
 		sdl.RenderFillRect(ref_def.renderer, cast(^sdl.FRect)&screen_rect)
 	} else {
 		// Get the 4 corners
 		// TODO: Just store the quat on the Render_State transform. Avoid having to do extra cos and sin
-		c := m.cos(interpolated_transform.rot)
-		s := m.sin(interpolated_transform.rot)
+		c := m.cos(transform.rot)
+		s := m.sin(transform.rot)
 
 		half_w := width * 0.5
 		half_h := height * 0.5
@@ -101,7 +105,7 @@ render_rect :: proc(ref_def : Ref_Def, render_state : Render_State, width : f32,
 				p.x * s + p.y * c,
 			}
 
-			obb[idx] = r + interpolated_transform.pos
+			obb[idx] = r + transform.pos
 		}
 
 		vertices : [4]sdl.Vertex
@@ -127,15 +131,12 @@ render_line :: proc(ref_def : Ref_Def, a,b : Vec2, color: [4]u8) {
 ref_def.camera, ref_def.screen)))
 }
 
-render_b2_circle :: proc(ref_def: Ref_Def, render_state : Render_State, circle : b2.Circle, color: [4]u8) {
+render_interpolate_circle :: proc(ref_def: Ref_Def, render_state : Render_State, circle : b2.Circle, color: [4]u8) {
 	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	render_circle_filled(ref_def, interpolated_transform.pos, circle.radius, color)
 }
 
-render_b2_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule : b2.Capsule, color: [4]u8) {
-	width := capsule.radius * 2.0
-	height := la.distance(capsule.center1, capsule.center2)
-	render_rect(ref_def, render_state, width, height, color)
+render_interpolate_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule : b2.Capsule, color: [4]u8) {
 
 	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	rot_mat : matrix[2,2]f32 = {
@@ -146,8 +147,13 @@ render_b2_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsul
 	circle1_pos := (interpolated_transform.pos) + (capsule.center1 * rot_mat)
 	circle2_pos := interpolated_transform.pos + (capsule.center2 * rot_mat)
 
-	render_circle_filled(ref_def, circle1_pos, capsule.radius, color)
-	render_circle_filled(ref_def, circle2_pos, capsule.radius, color)
+	render_capsule(ref_def, interpolated_transform, circle1_pos, circle2_pos, capsule.radius, color)
+}
+
+render_capsule :: proc(ref_def : Ref_Def, transform: Render_Transform, p1: Vec2, p2: Vec2, radius: f32, color: [4]u8) {
+	render_rect(ref_def, transform, radius, la.distance(p1, p2), color)
+	render_circle_filled(ref_def, p1, radius, color)
+	render_circle_filled(ref_def, p2, radius, color)
 }
 
 render_circle :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8) {

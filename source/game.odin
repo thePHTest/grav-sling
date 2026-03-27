@@ -534,8 +534,8 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 		alpha,
 	}
 
-	world_render(g_mem^, ref_def)
-	im_render(platform, g_mem)
+	//world_render(g_mem^, ref_def)
+	//im_render(platform, g_mem)
 
 	{
 		// b2 debug draw
@@ -553,22 +553,22 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 			drawingBounds = {},
 			useDrawingBounds = false,
 			drawShapes = true,
-			drawJoints = true,
-			drawJointExtras = true,
-			drawBounds = true,
-			drawMass = true,
-			drawBodyNames = true,
-			drawContacts = true,
+			drawJoints = false,
+			drawJointExtras = false,
+			drawBounds = false,
+			drawMass = false,
+			drawBodyNames = false,
+			drawContacts = false,
 			drawGraphColors = false,
-			drawContactNormals = true,
-			drawContactImpulses = true,
-			drawContactFeatures = true,
+			drawContactNormals = false,
+			drawContactImpulses = false,
+			drawContactFeatures = false,
 			drawFrictionImpulses = false,
 			drawIslands = false,
 			userContext = &ref_def,
 		}
 
-		//b2.World_Draw(g_mem.physics_world, &b2_debug_draw)
+		b2.World_Draw(g_mem.physics_world, &b2_debug_draw)
 	}
 
 	sdl.RenderPresent(platform.renderer)

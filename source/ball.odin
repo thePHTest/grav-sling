@@ -52,5 +52,5 @@ ball_render :: proc(ball: Ball, ref_def: Ref_Def) {
 	circle_shape := b2.Shape_GetCircle(ball.shape)
 
 	ball_color :: [4]u8{255, 0, 0, 255}
-	render_b2_circle(ref_def, ball.render_state, circle_shape, ball_color)
+	render_interpolate_circle(ref_def, ball.render_state, circle_shape, ball_color)
 }

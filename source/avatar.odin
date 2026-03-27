@@ -136,7 +136,7 @@ avatar_render :: proc(avatar: Avatar, ref_def: Ref_Def) {
 	//render_rect(avatar.render_state, width, height, camera, screen, alpha)
 
 	avatar_color :: [4]u8{0, 0, 255, 255}
-	render_b2_capsule(ref_def, avatar.render_state, capsule_shape, avatar_color)
+	render_interpolate_capsule(ref_def, avatar.render_state, capsule_shape, avatar_color)
 
 	// Try sdl rect render
 	//source := atlas_textures[.Avatar].rect
