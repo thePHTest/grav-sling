@@ -8,7 +8,7 @@ import "mem_tracking"
 import "config"
 
 import "base:runtime"
-import b2 "box2d"
+import b2 "vendor:box2d"
 //import rl "vendor:raylib"
 import sdl "vendor:sdl3"
 import im "deps:odin-imgui"
@@ -17,7 +17,6 @@ import "core:c"
 //import "core:math"
 import "core:mem"
 import "core:os"
-import "core:os/os2"
 import "core:strings"
 
 when HOTLOAD {
@@ -474,7 +473,7 @@ update :: proc(g_mem : ^Game_Memory) {
 	ball_update(&g_mem.ball)
 }
 
-Collision_Category :: enum u32 {
+Collision_Category :: enum u64 {
 	Wall,
 	Avatar,
 	Ball,
@@ -534,8 +533,44 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 		screen,
 		alpha,
 	}
+
 	world_render(g_mem^, ref_def)
 	im_render(platform, g_mem)
+
+	{
+		// b2 debug draw
+		b2_debug_draw := b2.DefaultDebugDraw()
+		b2_debug_draw = {
+			DrawPolygonFcn = b2_debug_draw_polygon,
+			DrawSolidPolygonFcn = b2_debug_draw_solid_polygon,
+			DrawCircleFcn = b2_debug_draw_circle,
+			DrawSolidCircleFcn = b2_debug_draw_solid_circle,
+			DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule,
+			DrawSegmentFcn = b2_debug_draw_segment,
+			DrawTransformFcn = b2_debug_draw_transform,
+			DrawPointFcn = b2_debug_draw_point,
+			DrawStringFcn = b2_debug_draw_string,
+			drawingBounds = {},
+			useDrawingBounds = false,
+			drawShapes = true,
+			drawJoints = true,
+			drawJointExtras = true,
+			drawBounds = true,
+			drawMass = true,
+			drawBodyNames = true,
+			drawContacts = true,
+			drawGraphColors = false,
+			drawContactNormals = true,
+			drawContactImpulses = true,
+			drawContactFeatures = true,
+			drawFrictionImpulses = false,
+			drawIslands = false,
+			userContext = &ref_def,
+		}
+
+		//b2.World_Draw(g_mem.physics_world, &b2_debug_draw)
+	}
+
 	sdl.RenderPresent(platform.renderer)
 
 	//rl.EndMode2D()
@@ -754,7 +789,7 @@ temp_cstring :: proc(s: string) -> cstring {
 
 g_mem_reset :: proc(platform : ^Platform_State) -> ^Game_Memory {
 	log.info("g_mem_reset()...")
-	game_allocator := os2.heap_allocator()
+	game_allocator := os.heap_allocator()
 when MEMORY_TRACKING {
 	mem.tracking_allocator_init(&platform.game_memory_tracking.tracking_allocator, game_allocator, game_allocator)
 	game_allocator = mem.tracking_allocator(&platform.game_memory_tracking.tracking_allocator)
@@ -773,7 +808,7 @@ when MEMORY_TRACKING {
 
 	world_def := b2.DefaultWorldDef()
 	world_def.gravity = GRAVITY
-	world_def.enableContinous = true
+	world_def.enableContinuous = true
 	g_mem.physics_world = b2.CreateWorld(world_def)	
 	
 	g_mem.avatar = avatar_make(g_mem, {2,2}, 30.0)
@@ -817,10 +852,11 @@ wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 
 	box := b2.MakeBox((rect.w/2), (rect.h/2))
 	shape_def := b2.DefaultShapeDef()
-	shape_def.friction = 0.7
+	// TODO: Use new surface def for friction and restitution
+	//shape_def.friction = 0.7
 	shape_def.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Wall }),
-		maskBits = u32(bit_set[Collision_Category] { .Avatar, .Ball }),
+		categoryBits = u64(bit_set[Collision_Category] { .Wall }),
+		maskBits = u64(bit_set[Collision_Category] { .Avatar, .Ball }),
 	}
 
 	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)
@@ -839,10 +875,11 @@ pivot_make :: proc(g_mem: ^Game_Memory, pos : Vec2, radius : f32) -> Pivot {
 
 	circle := b2.Circle{radius=radius}
 	shape_def := b2.DefaultShapeDef()
-	shape_def.friction = 0.7
+	// TODO: Use new surface def for friction and restitution
+	//shape_def.friction = 0.7
 	shape_def.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Pivot }),
-		//maskBits = u32(bit_set[Collision_Category] { .Avatar }),
+		categoryBits = u64(bit_set[Collision_Category] { .Pivot }),
+		//maskBits = u64(bit_set[Collision_Category] { .Avatar }),
 	}
 
 	pivot.shape = b2.CreateCircleShape(pivot.body, shape_def, circle)

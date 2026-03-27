@@ -1,18 +1,17 @@
 package hotload_api
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
 import "core:os"
-import "core:os/os2"
-import "base:runtime"
+import "core:time"
 import "core:dynlib"
 
 _ :: fmt
 _ :: log
 _ :: mem
 _ :: os
-_ :: os2
 _ :: runtime
 _ :: dynlib
 
@@ -33,7 +32,7 @@ when ODIN_OS == .Windows {
 // We copy the DLL because using it directly would lock it, which would prevent
 // the compiler from writing to it.
 copy_dll :: proc(to: string) -> bool {
-	copy_err := os2.copy_file(to, GAME_DLL_PATH)
+	copy_err := os.copy_file(to, GAME_DLL_PATH)
 
 	if copy_err != nil {
 		fmt.printfln("Failed to copy " + GAME_DLL_PATH + " to {0}: %v", to, copy_err)
@@ -103,7 +102,7 @@ Game_API :: struct {
 	memory_size: proc() -> int,
 	unload: proc(),
 	shutdown: proc(raw_game_memory : rawptr),
-	modification_time: os.File_Time,
+	modification_time: time.Time,
 	api_version: int,
 }
 

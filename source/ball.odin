@@ -1,6 +1,6 @@
 package game
 
-import b2 "box2d"
+import b2 "vendor:box2d"
 
 Ball :: struct {
 	body: b2.BodyId,
@@ -22,11 +22,12 @@ ball_make :: proc(g_mem : ^Game_Memory, pos: Vec2) -> Ball {
 	sd := b2.DefaultShapeDef()
 	DENSITY :: 1.00
 	sd.density = DENSITY
-	sd.friction = 0.0
-	sd.restitution = 0.2
+	// TODO: Looks like friction and restitution moved to surface property. Configure that
+	//sd.friction = 0.0
+	//sd.restitution = 0.2
 	sd.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Ball }),
-		maskBits = u32(bit_set[Collision_Category] { .Wall, .Avatar }),
+		categoryBits = u64(bit_set[Collision_Category] { .Ball }),
+		maskBits = u64(bit_set[Collision_Category] { .Wall, .Avatar }),
 	}
 
 	circle := b2.Circle {
@@ -51,5 +52,5 @@ ball_render :: proc(ball: Ball, ref_def: Ref_Def) {
 	circle_shape := b2.Shape_GetCircle(ball.shape)
 
 	ball_color :: [4]u8{255, 0, 0, 255}
-	render_circle(ref_def, ball.render_state, circle_shape, ball_color)
+	render_b2_circle(ref_def, ball.render_state, circle_shape, ball_color)
 }

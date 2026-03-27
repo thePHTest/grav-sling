@@ -1,7 +1,5 @@
 @echo off
 
-odin run atlas_builder
-
 set GAME_RUNNING=false
 
 :: OUT_DIR is for everything except the exe. The exe needs to stay in root
@@ -53,7 +51,7 @@ set app_collections=-collection:deps=deps/
 :: Also note that we always write game.dll to the same file. game_hot_reload.exe
 :: monitors this file and does the hot reload when it changes.
 echo Building game.dll
-odin build source -export-defineables:defineables_dll.csv -export-dependencies:json -export-dependencies-file:dependencies_dll.json -strict-style -vet -debug %app_collections% -define:BOX2D_SHARED=true -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
+odin build source -export-defineables:defineables_dll.csv -export-dependencies:json -export-dependencies-file:dependencies_dll.json -strict-style -vet -debug %app_collections% -build-mode:dll -out:%OUT_DIR%/game.dll -pdb-name:%GAME_PDBS_DIR%\game_%PDB_NUMBER%.pdb > nul
 IF %ERRORLEVEL% NEQ 0 exit /b 1
 
 :: If game.exe already running: Then only compile game.dll and exit cleanly

@@ -1,9 +1,9 @@
 Defineable,Default Value,Docs,Location
 DEFAULT_TEMP_ALLOCATOR_BACKING_SIZE,4194304,,C:/phgit/Odin/base/runtime/default_temporary_allocator.odin(3:52)
-_copy_directory_all_native,false,,C:/phgit/Odin/core/os/os2/dir.odin(213:16)
-_copy_file_native,false,,C:/phgit/Odin/core/os/os2/file.odin(501:16)
-MEMORY_TRACKING,true,,C:/phgit/grav-sling/source/config/config.odin(12:28)
-HOTLOAD,true,,C:/phgit/grav-sling/source/hotload_api/api.odin(19:20)
+_copy_directory_all_native,false,,C:/phgit/Odin/core/os/dir.odin(212:16)
+_copy_file_native,false,,C:/phgit/Odin/core/os/file.odin(547:16)
+MEMORY_TRACKING,true,,C:/phgit/grav-sling/source/config/config.odin(11:28)
+HOTLOAD,true,,C:/phgit/grav-sling/source/hotload_api/api.odin(18:20)
 HOTLOAD,true,,C:/phgit/grav-sling/source/main_hot_reload/main_hot_reload.odin(8:20)
 MEMORY_TRACKING,true,,C:/phgit/grav-sling/source/main_hot_reload/main_hot_reload.odin(9:28)
 MEMORY_TRACKING,true,,C:/phgit/grav-sling/source/mem_tracking/mem_tracking.odin(3:28)

@@ -13,13 +13,13 @@ import "../mem_tracking"
 import "../config"
 
 import "core:fmt"
-import "core:os/os2"
+import "core:os"
 import "core:log"
 import "core:mem"
 
 
 main :: proc() {
-	host_exe_allocator := os2.heap_allocator()
+	host_exe_allocator := os.heap_allocator()
 when MEMORY_TRACKING {
 	host_exe_tracking_allocator : mem.Tracking_Allocator
 	mem.tracking_allocator_init(&host_exe_tracking_allocator, host_exe_allocator)

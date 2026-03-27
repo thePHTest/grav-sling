@@ -1,6 +1,6 @@
 package game
 
-import b2 "box2d"
+import b2 "vendor:box2d"
 
 body_angle_deg :: proc(b: b2.BodyId) -> f32 {
 	return -b2.Rot_GetAngle(b2.Body_GetRotation(b))*RAD2DEG

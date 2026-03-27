@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:log"
 import "core:mem"
 import "core:os"
-import "core:os/os2"
 import "core:path/filepath"
 
 import "../mem_tracking"
@@ -17,14 +16,14 @@ startup :: proc() -> runtime.Context {
 	// Set working directory to exe
 	exe_path := os.args[0]
 	exe_dir := filepath.dir(string(exe_path), context.temp_allocator)
-	os.set_current_directory(exe_dir)
+	os.set_working_directory(exe_dir)
 
 	logger := log.create_console_logger()
 	context.logger = logger
 	log.info("Console logger created")
 
 	// Configure platform allocator
-	platform_allocator := os2.heap_allocator()
+	platform_allocator := os.heap_allocator()
 when MEMORY_TRACKING {
 	mem.tracking_allocator_init(&g_platform_tracking_allocator, platform_allocator, platform_allocator)
 	platform_allocator = mem.tracking_allocator(&g_platform_tracking_allocator)

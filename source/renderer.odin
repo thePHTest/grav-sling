@@ -4,8 +4,9 @@ import m "core:math"
 import "core:log"
 import la "core:math/linalg"
 import rl "vendor:raylib"
-import b2 "box2d"
+import b2 "vendor:box2d"
 import sdl "vendor:sdl3"
+import "core:fmt"
 
 _ :: log
 
@@ -66,6 +67,9 @@ point_world_to_screen :: proc(p : Vec2, camera : Camera2D, screen : Vec2) -> Vec
 	return result
 }
 
+render_b2_transform :: proc(ref_def: Ref_Def, transform: b2.Transform, color: [4]u8) {
+}
+
 render_rect :: proc(ref_def : Ref_Def, render_state : Render_State, width : f32, height : f32, color: [4]u8) {
 	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	if interpolated_transform.rot == 0.0 {
@@ -123,12 +127,12 @@ render_line :: proc(ref_def : Ref_Def, a,b : Vec2, color: [4]u8) {
 ref_def.camera, ref_def.screen)))
 }
 
-render_circle :: proc(ref_def: Ref_Def, render_state : Render_State, circle : b2.Circle, color: [4]u8) {
+render_b2_circle :: proc(ref_def: Ref_Def, render_state : Render_State, circle : b2.Circle, color: [4]u8) {
 	interpolated_transform := render_state_interpolate(render_state, ref_def.alpha)
 	render_circle_filled(ref_def, interpolated_transform.pos, circle.radius, color)
 }
 
-render_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule : b2.Capsule, color: [4]u8) {
+render_b2_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule : b2.Capsule, color: [4]u8) {
 	width := capsule.radius * 2.0
 	height := la.distance(capsule.center1, capsule.center2)
 	render_rect(ref_def, render_state, width, height, color)
@@ -144,6 +148,29 @@ render_capsule :: proc(ref_def : Ref_Def, render_state : Render_State, capsule :
 
 	render_circle_filled(ref_def, circle1_pos, capsule.radius, color)
 	render_circle_filled(ref_def, circle2_pos, capsule.radius, color)
+}
+
+render_circle :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8) {
+	camera := ref_def.camera
+	screen := ref_def.screen
+	screen_c := point_world_to_screen(c, camera, screen)
+	screen_r := r * camera.zoom
+
+	NUM_SEGMENTS :: 64
+
+	points : [NUM_SEGMENTS]sdl.FPoint
+
+	for idx in 0..<NUM_SEGMENTS {
+		t := f32(idx) / f32(NUM_SEGMENTS) * m.TAU
+
+		x := screen_c.x + m.cos(t) * screen_r
+		y := screen_c.y + m.sin(t) * screen_r
+
+		points[idx] = {x,y}
+	}
+
+	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+	sdl.RenderLines(ref_def.renderer, &points[0], len(points))
 }
 
 render_circle_filled :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8) {
@@ -189,4 +216,13 @@ render_circle_filled :: proc(ref_def : Ref_Def, c : Vec2, r : f32, color: [4]u8)
 	}
 
 	sdl.RenderGeometry(ref_def.renderer, nil, &vertices[0], len(vertices), &indices[0], len(indices))
+}
+
+render_point :: proc(ref_def : Ref_Def, p: Vec2, size: f32, color: [4]u8) {
+	// TODO: Seems like sdl3 renderer doesn't have a point size? so just use circle for now
+	render_circle_filled(ref_def, p, size, color)
+}
+
+render_debug_text :: proc(ref_def: Ref_Def, pos: Vec2, str: string, color: [4]u8) {
+	sdl.RenderDebugText(ref_def.renderer, pos.x, pos.y, fmt.ctprintf(str))
 }

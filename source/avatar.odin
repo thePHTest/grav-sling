@@ -1,6 +1,6 @@
 package game
 
-import b2 "box2d"
+import b2 "vendor:box2d"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -57,7 +57,8 @@ avatar_im_render :: proc(avatar : ^Avatar) {
 	im.SliderFloat("Move force", &avatar.move_force, 10.0, 4000.0)
 	im.SliderFloat("Decel force", &avatar.decel_force, 0.0, 1000.0)
 	if im.SliderFloat("Density", &avatar.density, 0.0, 6.0) {
-		b2.Shape_SetDensity(avatar.shape, avatar.density)
+		b2.Shape_SetDensity(avatar.shape, avatar.density, true)
+		// TODO: Is Body_ApplyMassFromShapes needed now that Shape_SetDensity take a updateBosyMass param?
 		b2.Body_ApplyMassFromShapes(avatar.body)
 	}
 	im.Text(fmt.ctprint("Body mass:", b2.Body_GetMass(avatar.body)))
@@ -81,11 +82,12 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	sd := b2.DefaultShapeDef()
 	DENSITY :: 1.00
 	sd.density = DENSITY
-	sd.friction = 0.0
-	sd.restitution = 0.2
+	// TODO: Looks like friction and restitution moved to surface property. Configure that
+	//sd.friction = 0.0
+	//sd.restitution = 0.2
 	sd.filter = {
-		categoryBits = u32(bit_set[Collision_Category] { .Avatar }),
-		maskBits = u32(bit_set[Collision_Category] { .Wall , .Ball}),
+		categoryBits = u64(bit_set[Collision_Category] { .Avatar }),
+		maskBits = u64(bit_set[Collision_Category] { .Wall , .Ball}),
 	}
 
 	capsule := b2.Capsule {
@@ -134,7 +136,7 @@ avatar_render :: proc(avatar: Avatar, ref_def: Ref_Def) {
 	//render_rect(avatar.render_state, width, height, camera, screen, alpha)
 
 	avatar_color :: [4]u8{0, 0, 255, 255}
-	render_capsule(ref_def, avatar.render_state, capsule_shape, avatar_color)
+	render_b2_capsule(ref_def, avatar.render_state, capsule_shape, avatar_color)
 
 	// Try sdl rect render
 	//source := atlas_textures[.Avatar].rect
