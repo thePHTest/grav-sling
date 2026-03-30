@@ -17,14 +17,14 @@ ball_make :: proc(g_mem : ^Game_Memory, pos: Vec2) -> Ball {
 	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
 	bd.linearDamping = 0.3
 	bd.angularDamping = 0.3
+	bd.name = "Ball"
 	body := b2.CreateBody(g_mem.physics_world, bd)
 	
 	sd := b2.DefaultShapeDef()
-	DENSITY :: 1.00
+	DENSITY :: 0.01
 	sd.density = DENSITY
-	// TODO: Looks like friction and restitution moved to surface property. Configure that
-	//sd.friction = 0.0
-	//sd.restitution = 0.2
+	sd.material.friction = 0.0
+	sd.material.restitution = 0.2
 	sd.filter = {
 		categoryBits = u64(bit_set[Collision_Category] { .Ball }),
 		maskBits = u64(bit_set[Collision_Category] { .Wall, .Avatar }),

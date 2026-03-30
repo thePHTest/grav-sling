@@ -84,8 +84,8 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	DENSITY :: 1.00
 	sd.density = DENSITY
 	// TODO: Looks like friction and restitution moved to surface property. Configure that
-	//sd.friction = 0.0
-	//sd.restitution = 0.2
+	sd.material.friction = 0.0
+	sd.material.restitution = 0.2
 	sd.filter = {
 		categoryBits = u64(bit_set[Collision_Category] { .Avatar }),
 		maskBits = u64(bit_set[Collision_Category] { .Wall , .Ball}),
@@ -105,10 +105,10 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 		body = body,
 		shape = shape,
 		aim_range = aim_range,
-		move_force = 400.0,
-		decel_force = 14.5,
+		move_force = 30.0,
+		decel_force = 8.5,
 		density = DENSITY,
-		max_velocity = 45.0,
+		max_velocity = 30.0,
 	}
 }
 
@@ -241,8 +241,12 @@ avatar_make_distance_joint :: proc(avatar: ^Avatar, other_body_id: b2.BodyId, ph
 	avatar.distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
 }
 
-avatar_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.WorldId) {
-	log.info("Possess Ball")
+MAX_POSSESS_DISTANCE :: 3.0
+avatar_try_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.WorldId) -> bool {
+	return avatar_try_possess_ball_distance_joint(avatar, ball, physics_world)
+}
+
+avatar_try_possess_ball_distance_joint :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.WorldId) -> bool {
 	// Distance joint
 	joint_def := b2.DefaultDistanceJointDef()
 	joint_def.bodyIdA = avatar.body
@@ -254,9 +258,12 @@ avatar_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.Worl
 	anchor_a := b2.Body_GetWorldPoint(avatar.body, joint_def.localAnchorA)
 	anchor_b := b2.Body_GetWorldPoint(ball.body, joint_def.localAnchorB)
 	joint_def.length = b2.Distance(anchor_a, anchor_b)
+	if joint_def.length > MAX_POSSESS_DISTANCE {
+		return false
+	}
 	joint_def.enableLimit = true
-	joint_def.minLength = 4.0
-	joint_def.maxLength = max(joint_def.length + 5.0, joint_def.minLength + 1.0)
+	joint_def.minLength = 0.0
+	joint_def.maxLength = MAX_POSSESS_DISTANCE
 	joint_def.collideConnected = true
 
 	// TODO: hertz value here depends on the update frequency.
@@ -265,7 +272,9 @@ avatar_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.Worl
 	joint_def.hertz = 1.0
 	joint_def.dampingRatio = 1.0
 
+	log.info("Possess Ball")
 	avatar.ball_distance_joint = b2.CreateDistanceJoint(physics_world, joint_def)
+	return true
 }
 
 avatar_depossess_ball :: proc(avatar: ^Avatar) {
@@ -289,7 +298,7 @@ avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, 
 
 	if keyboard_is_key_pressed(g_keyboard, .SPACE) {
 		if avatar.ball_distance_joint == {} {
-			avatar_possess_ball(avatar, &g_mem.ball, physics_world)
+			avatar_try_possess_ball(avatar, &g_mem.ball, physics_world)
 		} else {
 			avatar_depossess_ball(avatar)
 		}

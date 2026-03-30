@@ -19,7 +19,7 @@ im_render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	}
 
 	b2_debug_draw_im_render(&g_mem.b2_debug_draw)
-	//avatar_im_render(&g_mem.avatar)
+	avatar_im_render(&g_mem.avatar)
 
 	// Rendering
 	when RENDERER_SDL_GPU {

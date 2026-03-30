@@ -272,7 +272,7 @@ game_camera :: proc() -> Camera2D {
 	//h := f32(rl.GetScreenHeight())
 
 	return {
-		zoom = 40.0,
+		zoom = 60.0,
 		//zoom = h/PIXEL_WINDOW_HEIGHT*GAME_SCALE,
 		//offset = { w/2, h/2 },
 	}
@@ -525,7 +525,7 @@ render :: proc(platform : ^Platform_State, g_mem : ^Game_Memory, alpha : f64) {
 	//rl.ClearBackground({0, 120, 153, 255})
 	//rl.BeginMode2D(game_cam)
 
-	sdl.SetRenderDrawColor(platform.renderer, 127, 127, 127, 255)
+	sdl.SetRenderDrawColor(platform.renderer, 50, 50, 50, 255)
 	sdl.RenderClear(platform.renderer)
 
 	// Construct the Ref_Def
@@ -685,10 +685,11 @@ sdl_init :: proc(platform_state : ^Platform_State, platform_allocator : runtime.
 	_ = main_scale
 	window_flags := sdl.WindowFlags{.RESIZABLE, .HIDDEN, .HIGH_PIXEL_DENSITY}
 
+	// TODO: Proper dpi handling
 	// TODO: Proper window size settings
-	// TODO: Proper indow flags setting
+	// TODO: Proper window flags setting
 	//g_mem.window = sdl.CreateWindow(GAME_TITLE, i32(1920 * main_scale), i32(1080 * main_scale), window_flags)
-	platform_state.window = sdl.CreateWindow(GAME_TITLE, i32(1920), i32(1080), window_flags)
+	platform_state.window = sdl.CreateWindow(GAME_TITLE, i32(2048), i32(1152), window_flags)
 	if platform_state.window == nil {
 		log.error("sdl.CreateWindow() failed:", sdl.GetError())
 		return false
@@ -788,20 +789,10 @@ when MEMORY_TRACKING {
 	
 	g_mem.avatar = avatar_make(g_mem, {2,2}, 30.0)
 	g_mem.ball = ball_make(g_mem, {0, 0})
-	avatar_possess_ball(&g_mem.avatar, &g_mem.ball, g_mem.physics_world)
 	
-	field_width ::  190
-	field_height :: 106 
+	field_width ::  32
+	field_height :: 18 
 	wall_thickness :: 1
-	
-	if USE_PIVOTS {
-		for y := -field_height / 2; y < field_height/2; y += 30 {
-			for x := -field_width / 2; x < field_width/2; x += 30 {
-				append(&g_mem.pivots, pivot_make(g_mem, Vec2{f32(x), f32(y)}, 2.0))
-			}
-		}
-	}
-	
 	
 	g_mem.left_wall = wall_make(g_mem, Rect{-field_width/2 - wall_thickness, -field_height/2, wall_thickness, field_height})
 	g_mem.right_wall = wall_make(g_mem, Rect{field_width/2, -field_height/2, wall_thickness, field_height})
@@ -822,16 +813,16 @@ when MEMORY_TRACKING {
 		DrawStringFcn = b2_debug_draw_string,
 		drawingBounds = {},
 		useDrawingBounds = false,
-		drawShapes = false,
-		drawJoints = false,
+		drawShapes = true,
+		drawJoints = true,
 		drawJointExtras = false,
 		drawBounds = false,
 		drawMass = false,
 		drawBodyNames = false,
 		drawContacts = false,
 		drawGraphColors = false,
-		drawContactNormals = false,
-		drawContactImpulses = false,
+		drawContactNormals = true,
+		drawContactImpulses = true,
 		drawContactFeatures = false,
 		drawFrictionImpulses = false,
 		drawIslands = false,
@@ -855,7 +846,7 @@ wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 	box := b2.MakeBox((rect.w/2), (rect.h/2))
 	shape_def := b2.DefaultShapeDef()
 	// TODO: Use new surface def for friction and restitution
-	//shape_def.friction = 0.7
+	shape_def.material.friction = 0.7
 	shape_def.filter = {
 		categoryBits = u64(bit_set[Collision_Category] { .Wall }),
 		maskBits = u64(bit_set[Collision_Category] { .Avatar, .Ball }),

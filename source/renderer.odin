@@ -112,7 +112,7 @@ render_rect :: proc(ref_def : Ref_Def, transform: Render_Transform, width: f32, 
 		for idx in 0..<len(obb) {
 			v := &vertices[idx]
 			v.position = cast(sdl.FPoint)point_world_to_screen(obb[idx], ref_def.camera, ref_def.screen)
-			v.color = sdl.FColor{1.0, 0.0, 0.0, 1.0}
+			v.color = sdl.FColor{f32(color.r) / 255.0, f32(color.g) / 255.0, f32(color.b) / 255.0, 1.0}
 			v.tex_coord = {}
 		}
 
@@ -230,8 +230,58 @@ render_point :: proc(ref_def : Ref_Def, p: Vec2, size: f32, color: [4]u8) {
 	render_circle_filled(ref_def, p, size, color)
 }
 
+render_polygon :: proc(ref_def: Ref_Def, vertices: []Vec2, color: [4]u8) {
+	camera := ref_def.camera
+	screen := ref_def.screen
+
+	screen_vertices := make([]Vec2, len(vertices) + 1)
+	defer delete(screen_vertices)
+	for v, idx in vertices {
+		screen_vertices[idx] = point_world_to_screen(v, camera, screen)
+	}
+	screen_vertices[len(vertices)] = screen_vertices[0]
+
+	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
+	sdl.RenderLines(ref_def.renderer, cast([^]sdl.FPoint)&screen_vertices[0], cast(i32)len(screen_vertices))
+}
+
+// TODO: This proc uses b2.Transform while the others use my Render_Transform.
+// Should I change my Render_Transform to mirror b2 and just use that everywhere?
+// It would save me from having to re-compute the cos and sin values of rhe rotation later
+render_polygon_filled :: proc(ref_def: Ref_Def, transform: b2.Transform, vertices: []Vec2, radius: f32, color: [4]u8) {
+	camera := ref_def.camera
+	screen := ref_def.screen
+
+	screen_vertices := make([]sdl.Vertex, len(vertices))
+	defer delete(screen_vertices)
+	fill_color := sdl.FColor{f32(color.r) / 255.0, f32(color.g) / 255.0, f32(color.b) /255.0, f32(color.a) / 255.0}
+	fill_color.a /=  2.0
+
+	for &v,idx in screen_vertices {
+		world_point := b2.TransformPoint(transform, vertices[idx])
+		v.position = cast(sdl.FPoint)point_world_to_screen(world_point, camera, screen)
+		v.color = fill_color
+	}
+
+	// Triangle fan
+	index_count := (len(vertices) - 2) * 3
+	indices := make([]i32, index_count)
+	defer delete(indices)
+
+	for idx :i32 = 0; idx < i32(len(vertices)) - 2; idx += 1 {
+		indices[idx*3] = 0
+		indices[idx*3 + 1] = idx + 1
+		indices[idx*3 + 2] = idx + 2
+	}
+
+	sdl.RenderGeometry(ref_def.renderer, nil, &screen_vertices[0], cast(i32)len(screen_vertices), &indices[0], cast(i32)len(indices))
+	// TODO: Draw an outline somehow?
+	//render_polygon(ref_def, world_vertices, color)
+}
+
 render_debug_text :: proc(ref_def: Ref_Def, pos: Vec2, str: string, color: [4]u8) {
 	screen_pos := point_world_to_screen(pos, ref_def.camera, ref_def.screen)
 	sdl.SetRenderDrawColor(ref_def.renderer, expand_values(color))
 	sdl.RenderDebugText(ref_def.renderer, screen_pos.x, screen_pos.y, fmt.ctprintf(str))
 }
+

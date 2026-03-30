@@ -36,12 +36,16 @@ bgr_to_rgba :: proc(color: u32) -> [4]u8 {
 
 // Draw a closed polygon provided in CCW order.
 b2_debug_draw_polygon :: proc "c" (vertices: [^]Vec2, vertexCount: c.int, color: b2.HexColor, ctx: rawptr) {
+	context = g_context
+	ref_def := cast(^Ref_Def)ctx
+	render_polygon(ref_def^, vertices[:vertexCount], bgr_to_rgba(u32(color)))
 }
 
 // Draw a solid closed polygon provided in CCW order.
-b2_debug_draw_solid_polygon :: proc "c" (transform: b2.Transform, vertices: [^]Vec2, vertexCount: c.int, radius: f32, colr: b2.HexColor,
-ctx: rawptr ) {
-
+b2_debug_draw_solid_polygon :: proc "c" (transform: b2.Transform, vertices: [^]Vec2, vertexCount: c.int, radius: f32, color: b2.HexColor, ctx: rawptr ) {
+	context = g_context
+	ref_def := cast(^Ref_Def)ctx
+	render_polygon_filled(ref_def^, transform, vertices[:vertexCount], radius, bgr_to_rgba(u32(color)))
 }
 
 // Draw a circle.
@@ -86,14 +90,21 @@ b2_debug_draw_segment :: proc "c" (p1, p2: Vec2, color: b2.HexColor, ctx: rawptr
 
 // Draw a transform. Choose your own length scale.
 b2_debug_draw_transform :: proc "c" (transform: b2.Transform, ctx: rawptr) {
-
+	context = g_context
+	ref_def := cast(^Ref_Def)ctx
+	render_transform : Render_Transform
+	render_transform.pos = transform.p
+	render_transform.rot = b2.Rot_GetAngle(transform.q)
+	render_rect(ref_def^, render_transform, 0.2, 0.2, [4]u8{0, 0, 0, 255})
 }
 
 // Draw a point.
 b2_debug_draw_point :: proc "c" (p: Vec2, size: f32, color: b2.HexColor, ctx: rawptr) {
 	context = g_context
 	ref_def := cast(^Ref_Def)ctx
-	render_point(ref_def^, p, size, bgr_to_rgba(u32(color)))
+	radius_pixels := size / 2.0
+	radius_world := radius_pixels / ref_def.camera.zoom
+	render_point(ref_def^, p, radius_world, bgr_to_rgba(u32(color)))
 }
 
 // Draw a string.
