@@ -197,13 +197,6 @@ Wall :: struct {
 	rot: f32,
 }
 
-Pivot :: struct {
-	body: b2.BodyId,
-	shape: b2.ShapeId,
-	pos: Vec2,
-	radius: f32,
-}
-
 when MEMORY_TRACKING {
 Memory_Tracking :: struct {
 	tracking_allocator : mem.Tracking_Allocator,
@@ -237,8 +230,6 @@ Game_Memory :: struct {
 	starting_pos: Vec2,
 	avatar: Avatar,
 	ball: Ball,
-	
-	pivots: [dynamic]Pivot,
 	
 	left_wall: Wall,
 	right_wall: Wall,
@@ -471,7 +462,7 @@ show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc(g_mem : ^Game_Memory) {
 	b2.World_Step(physics_world(g_mem), f32(g_mem.sim_ctx.dt), 4)	
-	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.pivots, g_mem.physics_world)
+	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.physics_world)
 	ball_update(&g_mem.ball)
 }
 
@@ -479,7 +470,6 @@ Collision_Category :: enum u64 {
 	Wall,
 	Avatar,
 	Ball,
-	Pivot,
 }
 
 wall_render :: proc(wall : Wall, ref_def: Ref_Def) {
@@ -487,11 +477,6 @@ wall_render :: proc(wall : Wall, ref_def: Ref_Def) {
 	screen_rect := rect_world_to_screen(wall.rect, ref_def.camera, ref_def.screen)
 	sdl.SetRenderDrawColor(ref_def.renderer, 0, 255, 0, 255)
 	sdl.RenderFillRect(ref_def.renderer, cast(^sdl.FRect)&screen_rect)
-}
-
-pivot_render :: proc(pivot: Pivot, ref_def: Ref_Def) {
-	pivot_color :: [4]u8{128, 128, 0, 255}
-	render_circle_filled(ref_def, pivot.pos, pivot.radius, pivot_color)
 }
 
 world_render :: proc(g_mem : Game_Memory, ref_def : Ref_Def) {
@@ -503,10 +488,6 @@ world_render :: proc(g_mem : Game_Memory, ref_def : Ref_Def) {
 	wall_render(g_mem.right_wall, ref_def)
 	wall_render(g_mem.top_wall, ref_def)
 	wall_render(g_mem.bottom_wall, ref_def)
-	
-	for pivot in g_mem.pivots {
-		pivot_render(pivot, ref_def)
-	}
 
 	ball_render(g_mem.ball, ref_def)
 	
@@ -799,8 +780,6 @@ when MEMORY_TRACKING {
 	g_mem.top_wall = wall_make(g_mem, Rect{-field_width/2, field_height/2, field_width, wall_thickness})
 	g_mem.bottom_wall = wall_make(g_mem, Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
 
-	g_mem.pivots = make([dynamic]Pivot)
-
 	g_mem.b2_debug_draw = {
 		DrawPolygonFcn = b2_debug_draw_polygon,
 		DrawSolidPolygonFcn = b2_debug_draw_solid_polygon,
@@ -856,29 +835,6 @@ wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 	return w
 }
 
-pivot_make :: proc(g_mem: ^Game_Memory, pos : Vec2, radius : f32) -> Pivot {
-	pivot := Pivot {
-		pos = pos,
-		radius = radius,
-	}
-
-	body_def := b2.DefaultBodyDef()
-	body_def.position = pos
-	pivot.body = b2.CreateBody(physics_world(g_mem), body_def)
-
-	circle := b2.Circle{radius=radius}
-	shape_def := b2.DefaultShapeDef()
-	// TODO: Use new surface def for friction and restitution
-	//shape_def.friction = 0.7
-	shape_def.filter = {
-		categoryBits = u64(bit_set[Collision_Category] { .Pivot }),
-		//maskBits = u64(bit_set[Collision_Category] { .Avatar }),
-	}
-
-	pivot.shape = b2.CreateCircleShape(pivot.body, shape_def, circle)
-	return pivot
-}
-
 // TODO: Add this cleanup stuff from the imgui examples main.cpp
 // TODO: Add cleanup from imgui example for sdl renderer 3
 
@@ -886,7 +842,6 @@ g_mem_shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	log.info("g_mem_shutdown...")
 	//mem.free(g_mem.font.recs)
 	//mem.free(g_mem.font.glyphs)
-	mem.delete(g_mem.pivots)
 	free(g_mem)
 
 when MEMORY_TRACKING {
