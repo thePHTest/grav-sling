@@ -461,9 +461,11 @@ show_demo_window := false
 show_another_window := false
 clear_color := [3]f32{0.45, 0.55, 0.60}
 update :: proc(g_mem : ^Game_Memory) {
+	avatar_tick_pre_physics(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.physics_world)
+	ball_tick_pre_physics(&g_mem.ball)
 	b2.World_Step(physics_world(g_mem), f32(g_mem.sim_ctx.dt), 4)	
-	avatar_update(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.physics_world)
-	ball_update(&g_mem.ball)
+	avatar_tick_post_physics(g_mem, &g_mem.avatar, g_mem.sim_ctx, g_mem.physics_world)
+	ball_tick_post_physics(&g_mem.ball)
 }
 
 Collision_Category :: enum u64 {

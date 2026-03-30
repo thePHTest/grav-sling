@@ -43,7 +43,10 @@ ball_make :: proc(g_mem : ^Game_Memory, pos: Vec2) -> Ball {
 	}
 }
 
-ball_update :: proc(ball: ^Ball) {
+ball_tick_pre_physics :: proc(ball: ^Ball) {
+}
+
+ball_tick_post_physics :: proc(ball: ^Ball) {
 	ball.render_state.prev_transform = ball.render_state.curr_transform
 	ball.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(ball.body)
 }

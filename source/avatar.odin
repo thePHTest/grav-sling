@@ -35,7 +35,6 @@ Avatar :: struct {
 
 	ball_posession: bool,
 	arm_body_id: b2.BodyId,
-	revolute_joint_id: b2.JointId,
 	prismatic_joint_id: b2.JointId,
 
 	render_state : Render_State,
@@ -69,7 +68,7 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
 	bd.linearDamping = 0.0
 	//bd.angularDamping = 0.7
-	bd.fixedRotation = false
+	bd.fixedRotation = true
 	//bd.linearDamping = 0.0
 	//bd.angularDamping = 0.0
 	bd.name = "Avatar"
@@ -95,21 +94,14 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	shape := b2.CreateCapsuleShape(body, sd, capsule)
 
 	arm_def := b2.DefaultBodyDef()
-	arm_def.type = .dynamicBody
+	arm_def.type = .kinematicBody
 	arm_def.position = pos
 	arm_def.name = "Arm"
 	arm_body_id := b2.CreateBody(g_mem.physics_world, arm_def)
-	arm_mass_data : b2.MassData
-	arm_mass_data.mass = 0.001
-	arm_mass_data.rotationalInertia = 0.001
-	b2.Body_SetMassData(arm_body_id, arm_mass_data)
-
-	revolute_joint_def := b2.DefaultRevoluteJointDef()
-	revolute_joint_def.bodyIdA = body
-	revolute_joint_def.bodyIdB = arm_body_id
-	revolute_joint_def.enableMotor = true
-	revolute_joint_def.maxMotorTorque = 50.0
-	revolute_joint_id := b2.CreateRevoluteJoint(g_mem.physics_world, revolute_joint_def)
+	//arm_mass_data : b2.MassData
+	//arm_mass_data.mass = 0.001
+	//arm_mass_data.rotationalInertia = 0.001
+	//b2.Body_SetMassData(arm_body_id, arm_mass_data)
 
 	log.info(body)
 	log.info(shape)
@@ -117,7 +109,6 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	return {
 		body = body,
 		arm_body_id = arm_body_id,
-		revolute_joint_id = revolute_joint_id,
 		shape = shape,
 		aim_range = aim_range,
 		move_force = 30.0,
@@ -224,6 +215,18 @@ avatar_try_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.
 		return false
 	}
 
+	// On possess — reset arm state before creating joint
+	//b2.Body_SetTransform(avatar.arm_body_id,
+	//	b2.Body_GetPosition(avatar.body),
+	//	b2.Body_GetRotation(avatar.arm_body_id))
+	//b2.Body_SetLinearVelocity(avatar.arm_body_id, b2.Body_GetLinearVelocity(avatar.body))
+	//b2.Body_SetAngularVelocity(avatar.arm_body_id, 0.0)
+
+	// On possess — reset arm rotation to identity first
+	b2.Body_SetTransform(avatar.arm_body_id, body_pos, b2.MakeRot(0.0))
+	b2.Body_SetLinearVelocity(avatar.arm_body_id, b2.Body_GetLinearVelocity(avatar.body))
+	b2.Body_SetAngularVelocity(avatar.arm_body_id, 0.0)
+
 	ball_dir := b2.Normalize(ball_pos - arm_pos)
 	prismatic_joint_def := b2.DefaultPrismaticJointDef()
 	prismatic_joint_def.bodyIdA = avatar.arm_body_id
@@ -250,7 +253,7 @@ avatar_depossess_ball :: proc(avatar: ^Avatar) {
 	avatar.prismatic_joint_id = {}
 }
 
-avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, physics_world: b2.WorldId) {
+avatar_tick_pre_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, physics_world: b2.WorldId) {
 	contact_cap := b2.Body_GetContactCapacity(avatar.body)
 	contact_data := make([]b2.ContactData, contact_cap, context.temp_allocator)
 	contact_data = b2.Body_GetContactData(avatar.body, contact_data)
@@ -262,6 +265,17 @@ avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, 
 			//rl.PlaySound(g_mem.land_sound)
 		}
 	}
+	swing_speed : f32 = 0.0
+	if keyboard_is_key_down(g_keyboard, .LSHIFT) {
+		swing_speed = 10.0
+	}
+
+	// Arm update
+	b2.Body_SetTransform(avatar.arm_body_id, b2.Body_GetPosition(avatar.body), b2.Body_GetRotation(avatar.arm_body_id))
+	b2.Body_SetLinearVelocity(avatar.arm_body_id, b2.Body_GetLinearVelocity(avatar.body))
+
+	avatar_angular_velocity := b2.Body_GetAngularVelocity(avatar.body)
+	b2.Body_SetAngularVelocity(avatar.arm_body_id, avatar_angular_velocity + swing_speed)
 
 	if keyboard_is_key_pressed(g_keyboard, .SPACE) {
 		if avatar.prismatic_joint_id == {} {
@@ -332,6 +346,9 @@ avatar_update :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, 
 	}
 
 
+}
+
+avatar_tick_post_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx : Sim_Ctx, physics_world: b2.WorldId) {
 	avatar.render_state.prev_transform = avatar.render_state.curr_transform
 	avatar.render_state.curr_transform = transmute(Transform)b2.Body_GetTransform(avatar.body)
 }
