@@ -265,17 +265,40 @@ avatar_tick_pre_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx :
 			//rl.PlaySound(g_mem.land_sound)
 		}
 	}
-	swing_speed : f32 = 0.0
-	if keyboard_is_key_down(g_keyboard, .LSHIFT) {
-		swing_speed = 10.0
-	}
+
+	avatar_pos := b2.Body_GetPosition(avatar.body)
+	ball_pos := b2.Body_GetPosition(g_mem.ball.body)
+	avatar_to_ball_dir := la.normalize0(ball_pos - avatar_pos)
 
 	// Arm update
-	b2.Body_SetTransform(avatar.arm_body_id, b2.Body_GetPosition(avatar.body), b2.Body_GetRotation(avatar.arm_body_id))
+	b2.Body_SetTransform(avatar.arm_body_id, avatar_pos, b2.Body_GetRotation(avatar.arm_body_id))
 	b2.Body_SetLinearVelocity(avatar.arm_body_id, b2.Body_GetLinearVelocity(avatar.body))
 
-	avatar_angular_velocity := b2.Body_GetAngularVelocity(avatar.body)
-	b2.Body_SetAngularVelocity(avatar.arm_body_id, avatar_angular_velocity + swing_speed)
+	if avatar.prismatic_joint_id != {} {
+		arrows_dir : Vec2
+		if keyboard_is_key_down(g_keyboard, .UP) {
+			arrows_dir.y = 1.0
+		}
+		if keyboard_is_key_down(g_keyboard, .LEFT) {
+			arrows_dir.x = -1.0
+		}
+		if keyboard_is_key_down(g_keyboard, .DOWN) {
+			arrows_dir.y = -1.0
+		}
+		if keyboard_is_key_down(g_keyboard, .RIGHT) {
+			arrows_dir.x = 1.0
+		}
+		arrows_dir = la.normalize0(arrows_dir)
+		// Need to figure out direction relative to the revolute joint
+		MAX_ROT_SPEED :: 15.0
+		rot_speed := la.cross(avatar_to_ball_dir, arrows_dir) * MAX_ROT_SPEED
+		MAX_RADIAL_SPEED :: 15.0
+		radial_speed := la.dot(avatar_to_ball_dir, arrows_dir) * MAX_RADIAL_SPEED // TODO: IS there a better name for this?
+
+		avatar_angular_velocity := b2.Body_GetAngularVelocity(avatar.body)
+		b2.Body_SetAngularVelocity(avatar.arm_body_id, avatar_angular_velocity + rot_speed)
+		b2.PrismaticJoint_SetMotorSpeed(avatar.prismatic_joint_id, radial_speed)
+	}
 
 	if keyboard_is_key_pressed(g_keyboard, .SPACE) {
 		if avatar.prismatic_joint_id == {} {

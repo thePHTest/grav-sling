@@ -15,7 +15,7 @@ g_platform_tracking_allocator : mem.Tracking_Allocator
 startup :: proc() -> runtime.Context {
 	// Set working directory to exe
 	exe_path := os.args[0]
-	exe_dir := filepath.dir(string(exe_path), context.temp_allocator)
+	exe_dir := filepath.dir(string(exe_path))
 	os.set_working_directory(exe_dir)
 
 	logger := log.create_console_logger()
