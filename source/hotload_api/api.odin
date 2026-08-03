@@ -78,32 +78,59 @@ unload_game_api :: proc(api: ^Game_API) {
 		}
 	}
 
-	if os.remove(fmt.tprintf("game_{0}" + DLL_EXT, api.api_version)) != nil {
-		fmt.printfln("Failed to remove game_{0}" + DLL_EXT + " copy", api.api_version)
+	if os.remove(fmt.tprintf(GAME_DLL_DIR + "game_{0}" + DLL_EXT, api.api_version)) != nil {
+		fmt.printfln("Failed to remove " + GAME_DLL_DIR + "game_{0}" + DLL_EXT + " copy", api.api_version)
 	}
 }
 
-
-Hotload_Result :: enum {
-	Launch,
-	Hotload,
-	Full_Reset,
-	Load_Failed,
-	No_Hotload,
-	Exit,
+Reload :: enum {
+	None,
+	Hot,
+	Reset,
 }
 
 Game_API :: struct {
 	lib: dynlib.Library,
-	platform_init : proc(platform_allocator : ^mem.Allocator) -> rawptr,
-	mem_reset: proc(raw_platform_memory : rawptr) -> rawptr,
-	reset: proc(),
-	hotload_main_loop: proc(raw_hotload_memory : rawptr, game_api : Game_API, hotload_result : Hotload_Result, platform_context : runtime.Context) -> (rawptr, Game_API, Hotload_Result),
+	init: proc(platform_ctx: runtime.Context) -> rawptr, // returns opaque ^Hotload_Memory
+	tick: proc(handle: rawptr),
+	should_quit: proc(handle: rawptr) -> bool,
+	unload_for_hotload: proc(handle: rawptr),
+	unload_for_reset: proc(handle: rawptr),
+	rebuild_memory: proc(handle: rawptr, platform_ctx: runtime.Context), // full reset. Rebuilds g_mem in place
+	shutdown: proc(handle: rawptr, platform_ctx: runtime.Context),
+	hot_reloaded: proc(handle: rawptr, platform_ctx: runtime.Context), // rebind after a hot swap 
+	force_reload: proc(handle: rawptr) -> bool,
+	force_reset: proc(handle: rawptr) -> bool,
 	memory_size: proc() -> int,
-	unload: proc(),
-	shutdown: proc(raw_game_memory : rawptr),
+	platform_size: proc() -> int,
 	modification_time: time.Time,
 	api_version: int,
+}
+
+check_for_reload :: proc(cur_api: Game_API, handle: rawptr) -> (Game_API, Reload){
+	changed := false
+	mod_time, err := os.last_write_time_by_name(GAME_DLL_PATH)
+	if err == os.ERROR_NONE && cur_api.modification_time != mod_time {
+		changed = true
+	}
+
+	force_hot := cur_api.force_reload(handle)
+	force_reset := cur_api.force_reset(handle)
+	if !(changed || force_hot || force_reset) {
+		return {}, .None
+	}
+
+	new_api, ok := load_game_api(cur_api.api_version + 1)
+	if !ok {
+		// Keep running the old dll on load failure
+		return {}, .None
+	}
+
+	if force_reset || (new_api.memory_size() != cur_api.memory_size()) || (new_api.platform_size() != cur_api.platform_size()) {
+		return new_api, .Reset
+	}
+
+	return new_api, .Hot
 }
 
 }

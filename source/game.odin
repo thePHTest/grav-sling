@@ -3,7 +3,6 @@ package game
 HOTLOAD :: #config(HOTLOAD, true)
 MEMORY_TRACKING :: #config(MEMORY_TRACKING, true)
 
-import "hotload_api"
 import "mem_tracking"
 import "config"
 
@@ -25,10 +24,38 @@ when HOTLOAD {
 	_ :: hotload_api
 }
 
+_ :: mem_tracking
+
 GAME_TITLE :: "GravSling"
 PIXEL_WINDOW_HEIGHT :: 1080
 
 RENDERER_SDL_GPU :: false
+
+g_context : runtime.Context
+g_platform : ^Platform_State
+
+establish_game_context :: proc(game_allocator: runtime.Allocator, platform_ctx: runtime.Context) -> runtime.Context {
+	ctx := platform_ctx
+	ctx.allocator = game_allocator 
+	g_context = ctx
+	return ctx
+}
+
+establish_globals :: proc(platform : ^Platform_State) {
+	g_platform = platform
+}
+
+
+// Gets the allocator that backs all game memory.
+// Stubs out using the platform as a param as in the future we should
+// store game allocator state on it
+game_backing_allocator :: proc(platform: ^Platform_State) -> runtime.Allocator {
+	return os.heap_allocator()
+}
+
+game_backing_reset :: proc(platform: ^Platform_State) {
+	// no-op with os.heap_allocator()
+}
 
 // Hotload exports
 when HOTLOAD {
@@ -36,32 +63,72 @@ when HOTLOAD {
 Hotload_Memory :: struct {
 	platform : ^Platform_State, // Persistent platform data. Never reset
 	g_mem : ^Game_Memory, // Game data that can be hard reset
+	reload_requested : bool,
+	reset_requested : bool,
 }
 
 @(export)
-game_hotload_main_loop :: proc(raw_hotload_memory : rawptr, game_api : hotload_api.Game_API, hotload_result :
-hotload_api.Hotload_Result, platform_context : runtime.Context) -> (new_raw_hotload_memory : rawptr, new_game_api : hotload_api.Game_API, new_hotload_result : hotload_api.Hotload_Result) {
-	context = platform_context
-	hotload_memory : ^Hotload_Memory
-	if hotload_result == .Launch {
-		platform, g_mem := startup(platform_context.allocator)
+game_init :: proc(platform_ctx: runtime.Context) -> rawptr {
+	context = platform_ctx
+	platform, g_mem := init(platform_ctx)
+	hotload_memory := new(Hotload_Memory)
+	hotload_memory.platform = platform
+	hotload_memory.g_mem = g_mem
 
-		hotload_memory = new(Hotload_Memory)
-		hotload_memory.platform = platform
-		hotload_memory.g_mem = g_mem
-	} else {
-		hotload_memory = cast(^Hotload_Memory)raw_hotload_memory
+	return rawptr(hotload_memory)
+}
 
-		if hotload_result == .Full_Reset {
-			hotload_memory.g_mem = g_mem_reset(hotload_memory.platform)
-		}
-	}
 
-	log.info("hotload_main_loop()...")
+@(export)
+game_tick :: proc(handle: rawptr) {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
 
-	context.allocator = hotload_memory.g_mem.allocator
-	g_context = context
-	return hotload_main_loop(hotload_memory, game_api)
+	poll_input(hotload_memory.platform, hotload_memory.g_mem)
+
+	hotload_memory.reload_requested = keyboard_is_key_pressed(g_keyboard, .F4)
+	hotload_memory.reset_requested = keyboard_is_key_pressed(g_keyboard, .F5)
+
+	update_and_render(hotload_memory.platform, hotload_memory.g_mem)
+	on_frame_end(hotload_memory.platform, hotload_memory.g_mem)
+}
+
+@(export)
+game_should_quit :: proc(handle: rawptr) -> bool {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	return should_quit(hotload_memory.g_mem)
+}
+
+@(export)
+game_shutdown :: proc(handle: rawptr, platform_ctx: runtime.Context) {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	shutdown(hotload_memory.platform, hotload_memory.g_mem)
+	context = platform_ctx
+	free(hotload_memory)
+}
+
+@(export)
+game_unload_for_hotload :: proc(handle: rawptr) {
+	//hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	im_shutdown()
+}
+
+@(export)
+game_unload_for_reset :: proc(handle: rawptr) {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	im_shutdown()
+	g_mem_shutdown(hotload_memory.platform, hotload_memory.g_mem)
+}
+
+@(export)
+game_rebuild_memory :: proc(handle: rawptr, platform_ctx: runtime.Context) {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = platform_ctx
+	hotload_memory.g_mem = g_mem_reset(hotload_memory.platform)
 }
 
 @(export)
@@ -69,122 +136,58 @@ game_memory_size :: proc() -> int {
 	return size_of(Game_Memory)
 }
 
-unload :: proc() {
-	im_shutdown()
+@(export)
+game_platform_size :: proc() -> int {
+	return size_of(Platform_State)
 }
 
-force_hotload :: proc() -> bool {
-	return keyboard_is_key_pressed(g_keyboard, .F4)
+@(export)
+game_force_reload :: proc(handle: rawptr) -> bool {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	return hotload_memory.reload_requested
 }
 
-force_reset:: proc() -> bool {
-	return keyboard_is_key_pressed(g_keyboard, .F5)
+@(export)
+game_force_reset:: proc(handle: rawptr) -> bool {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = g_context
+	return hotload_memory.reset_requested
 }
 
-hotload :: proc(game_api : hotload_api.Game_API, platform_allocator : mem.Allocator) -> (hotload_api.Game_API, hotload_api.Hotload_Result) {
-	context.allocator = platform_allocator
-
-	force_hotload := force_hotload()
-	force_reset := force_reset()
-	reload := force_hotload || force_reset
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(hotload_api.GAME_DLL_PATH)
-
-	if game_dll_mod_err == os.ERROR_NONE && game_api.modification_time != game_dll_mod {
-		reload = true
-	}
-
-	if reload {
-		new_game_api, new_game_api_ok := hotload_api.load_game_api(game_api.api_version + 1)
-
-		if new_game_api_ok {
-			force_reset = force_reset || game_api.memory_size() != new_game_api.memory_size()
-
-			if !force_reset {
-				// This does the normal hot reload
-				return new_game_api, .Hotload
-			} else {
-				// This does a full reset. That's basically like opening and
-				// closing the game, without having to restart the executable.
-				//
-				// You end up in here if the game requests a full reset OR
-				// if the size of the game memory has changed. That would
-				// probably lead to a crash anyways.
-				return new_game_api, .Full_Reset
-			}
-
-		}
-		return {}, .Load_Failed
-	}
-	return {}, .No_Hotload
+@(export)
+game_hot_reloaded :: proc(handle: rawptr, platform_ctx: runtime.Context) {
+	hotload_memory := cast(^Hotload_Memory)handle
+	context = establish_game_context(hotload_memory.g_mem.allocator, platform_ctx)
+	establish_globals(hotload_memory.platform)
+	im_init(hotload_memory.platform)
+	rebind_callbacks(hotload_memory.g_mem)
+	hotload_memory.g_mem.sim_ctx.current_time = hi_res_time_in_seconds()
+	hotload_memory.g_mem.sim_ctx.accumulator = 0
 }
 
-hotload_main_loop :: proc(hotload_memory : ^Hotload_Memory, game_api : hotload_api.Game_API) -> (raw_hotload_memory : rawptr, new_game_api : hotload_api.Game_API, hotload_result : hotload_api.Hotload_Result) {
-	platform := hotload_memory.platform
-	g_mem := hotload_memory.g_mem
-
-	// On hot-reload code
-	im_init(platform)
-
-	// Main loop
-	g_mem.sim_ctx.current_time = hi_res_time_in_seconds()
-	g_mem.sim_ctx.accumulator = 0.0
-	for !game_should_close(g_mem) {
-
-		poll_input(platform, g_mem)
-
-		// Check for reload                                   
-		new_game_api, hotload_result = hotload(game_api, platform.allocator)
-		switch hotload_result {
-		case .Launch:
-		case .Hotload:
-			unload()
-			return rawptr(hotload_memory), new_game_api, hotload_result
-		case .Full_Reset:
-			unload()
-			g_mem_shutdown(platform, g_mem)
-			return rawptr(hotload_memory), new_game_api, hotload_result
-		case .Load_Failed:
-			log.error("Hotload game api failed")          
-		case .No_Hotload:
-			// Do nothing
-		case .Exit:
-			// Should not be returned by hotload(...)
-		}
-
-		update_and_render(platform, g_mem)
-
-		on_frame_end(platform, g_mem)
-	}
-
-	on_shutdown(platform, g_mem)
-	log.info("hotload_main_loop() .Exit")
-	return nil, {}, .Exit
-}
+// TODO: Better name for this that is more generic? Maybe just do a on_hot_reload proc per system? idk atm
+rebind_callbacks :: proc(g_mem: ^Game_Memory) {
+	g_mem.b2_debug_draw.DrawPolygonFcn = b2_debug_draw_polygon
+	g_mem.b2_debug_draw.DrawSolidPolygonFcn = b2_debug_draw_solid_polygon
+	g_mem.b2_debug_draw.DrawCircleFcn = b2_debug_draw_circle
+	g_mem.b2_debug_draw.DrawSolidCircleFcn = b2_debug_draw_solid_circle
+	g_mem.b2_debug_draw.DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule
+	g_mem.b2_debug_draw.DrawSegmentFcn = b2_debug_draw_segment
+	g_mem.b2_debug_draw.DrawTransformFcn = b2_debug_draw_transform
+	g_mem.b2_debug_draw.DrawPointFcn = b2_debug_draw_point
+	g_mem.b2_debug_draw.DrawStringFcn = b2_debug_draw_string
 }
 
-when !HOTLOAD {
-main :: proc() {
-	context = config.startup()
-	platform, g_mem := startup(context.allocator)
-
-	im_init(platform)
-
-	g_mem.sim_ctx.current_time = hi_res_time_in_seconds()
-	g_mem.sim_ctx.accumulator = 0.0
-	for !game_should_close(g_mem) {
-		poll_input(platform, g_mem)
-		update_and_render(platform, g_mem)
-		on_frame_end(platform, g_mem)
-	}
-
-	on_shutdown(platform, g_mem)
-	config.shutdown(context)
-}
 }
 
-startup :: proc(platform_allocator : runtime.Allocator) -> (^Platform_State, ^Game_Memory) {
-	platform := platform_init(platform_allocator)
+init :: proc(platform_ctx : runtime.Context) -> (^Platform_State, ^Game_Memory) {
+	context = platform_ctx
+	platform := platform_init(platform_ctx.allocator)
 	g_mem := g_mem_reset(platform)
+	context = establish_game_context(g_mem.allocator, platform_ctx)
+	establish_globals(platform)
+	im_init(platform)
 
 	return platform, g_mem
 }
@@ -248,7 +251,6 @@ Game_Memory :: struct {
 	allocator : runtime.Allocator,
 }
 
-g_context : runtime.Context
 
 
 Camera2D :: struct {
@@ -374,7 +376,7 @@ platform_shutdown :: proc(platform : ^Platform_State) {
 	free(platform)
 }
 
-game_should_close :: proc(g_mem : ^Game_Memory) -> bool {
+should_quit :: proc(g_mem : ^Game_Memory) -> bool {
 	return g_mem.finished
 }
 
@@ -383,16 +385,11 @@ on_frame_end :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	g_mem.sim_ctx.frame_num += 1
 }
 
-on_shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
+shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 	im_shutdown()
 	g_mem_shutdown(platform, g_mem)
 	sdl_shutdown(platform, platform.allocator)
-when MEMORY_TRACKING {
-	if mem_tracking.reset_tracking_allocator(&platform.game_memory_tracking.tracking_allocator) {
-	}
-	mem.tracking_allocator_destroy(&platform.game_memory_tracking.tracking_allocator)
 	platform_shutdown(platform)
-}
 }
 
 clear_edge_events :: proc() {
@@ -573,10 +570,6 @@ vec2_flip :: proc(p: Vec2) -> Vec2 {
 
 IS_WASM :: ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32
 
-// Note that we have one weird case where platformIO.Monitors is being allocated as a [dynamic] in
-// ImGui_ImplSDL3_UpdateMonitors(), and then we directly assign to platformIO.Monitor's fields.
-// This means that it's allocation won't go through this proc. However, it's freeing will go through the free_func during the
-// ~ImVector<PlatformMonitor> destructor
 im_mem_alloc_func : im.MemAllocFunc : proc "c" (sz: c.size_t, user_data: rawptr) -> rawptr {
 	context = g_context
 	// TODO: Handle alloc error
@@ -590,7 +583,6 @@ im_mem_free_func : im.MemFreeFunc : proc "c"(ptr: rawptr, user_data: rawptr) {
 }
 
 im_init :: proc(platform : ^Platform_State) {
-	context = g_context
 	log.info("im_init()...")
 
 	main_scale := sdl.GetDisplayContentScale(sdl.GetPrimaryDisplay())
@@ -748,13 +740,14 @@ temp_cstring :: proc(s: string) -> cstring {
 
 g_mem_reset :: proc(platform : ^Platform_State) -> ^Game_Memory {
 	log.info("g_mem_reset()...")
-	game_allocator := os.heap_allocator()
+	game_backing_reset(platform)
+
+	game_allocator := game_backing_allocator(platform)
 when MEMORY_TRACKING {
 	mem.tracking_allocator_init(&platform.game_memory_tracking.tracking_allocator, game_allocator, game_allocator)
 	game_allocator = mem.tracking_allocator(&platform.game_memory_tracking.tracking_allocator)
 }
 	context.allocator = game_allocator
-	g_context = context
 
 	g_mem, alloc_err := new(Game_Memory)
 	if alloc_err != .None {
@@ -833,7 +826,7 @@ wall_make :: proc(g_mem : ^Game_Memory, rect : Rect, rot : f32 = 0.0) -> Wall {
 		maskBits = u64(bit_set[Collision_Category] { .Avatar, .Ball }),
 	}
 
-	w.shape = b2.CreatePolygonShape(w.body, shape_def, box)
+	w.shape = b2.CreatePolygonShape(w.body, shape_def, &box)
 	return w
 }
 
@@ -848,13 +841,13 @@ g_mem_shutdown :: proc(platform : ^Platform_State, g_mem : ^Game_Memory) {
 
 when MEMORY_TRACKING {
 	mem_tracking.reset_tracking_allocator(&platform.game_memory_tracking.tracking_allocator)
+	mem.tracking_allocator_destroy(&platform.game_memory_tracking.tracking_allocator)
 }
 	log.info("g_mem_shutdown complete")
 
 }
 
 im_shutdown :: proc() {
-	context = g_context
 	log.info("im_shutdown...")
 	when RENDERER_SDL_GPU {
 		SDL_WaitForGPUIdle(platform.gpu_device)

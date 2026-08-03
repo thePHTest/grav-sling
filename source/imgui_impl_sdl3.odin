@@ -124,12 +124,6 @@ ImGui_ImplSDL3_Data :: struct {
     gamepads: [dynamic]^sdl.Gamepad,
     gamepad_mode: ImGui_ImplSDL3_GamepadMode,
     want_update_gamepads_list: bool,
-
-	// @ph_begin
-	// dear_bindings doesn't providing an interface to interact with ImVector<T> types so we will
-	// handle them here and then assign to Size,Capacity,Data as needed
-	platform_io_monitors : [dynamic]im.PlatformMonitor,
-	// @ph_end
 }
 
 // Backend data stored in io.BackendPlatformUserData to allow support for multiple Dear ImGui contexts
@@ -681,9 +675,9 @@ ImGui_ImplSDL3_Shutdown :: proc() {
     io.BackendFlags &= ~{.HasMouseCursors, .HasSetMousePos, .HasGamepad, .PlatformHasViewports, .HasMouseHoveredViewport, .HasParentViewport}
     im.PlatformIO_ClearPlatformHandlers(platform_io)
 	delete(bd.gamepads)
-	// TODO: We should really be using ImVector.resize, push_back etc but Cimgui isn't exposing that for any ImVector<T> types. As
-	// a result, we need to not delete the bd.platform_io_monitors dynamic array and let the ~ImVector<> destructor handle it during DeleteContext
-	//delete(bd.platform_io_monitors)
+	// platform_io.Monitors is owned by imgui (grown via im.MemAlloc in UpdateMonitors);
+	// its ~ImVector destructor frees Data during DestroyContext. Nothing to do here.
+
 	delete(bd.backend_platform_name)
     free(bd)
 }
@@ -906,15 +900,36 @@ ImGui_ImplSDL3_UpdateGamepads :: proc() {
     ImGui_ImplSDL3_UpdateGamepadAnalog(bd, io, .GamepadRStickDown,  .RIGHTY, +thumb_dead_zone, +32767)
 }
 
+// dear_bindings doesn't expose ImVector<T> ops, so we grow platform_io.Monitors the
+// way imgui does -- through imgui's own allocator (im.MemAlloc/MemFree) -- so imgui
+// solely owns Data and its ~ImVector destructor frees a matching IM_ALLOC. No Odin
+// [dynamic] alias, no split ownership.
+im_monitors_reserve :: proc(v: ^im.Vector_PlatformMonitor, new_cap: c.int) {
+	if new_cap <= v.Capacity do return
+	new_data := cast(^im.PlatformMonitor)im.MemAlloc(c.size_t(int(new_cap) * size_of(im.PlatformMonitor)))
+	if v.Data != nil {
+		libc.memcpy(new_data, v.Data, c.size_t(int(v.Size) * size_of(im.PlatformMonitor)))
+		im.MemFree(v.Data)
+	}
+	v.Data = new_data
+	v.Capacity = new_cap
+}
+
+im_monitors_push :: proc(v: ^im.Vector_PlatformMonitor, m: im.PlatformMonitor) {
+	if v.Size == v.Capacity {
+		// imgui's _grow_capacity: Capacity ? Capacity + Capacity/2 : 8
+		new_cap: c.int = v.Capacity != 0 ? v.Capacity + v.Capacity / 2 : 8
+		if new_cap < v.Size + 1 do new_cap = v.Size + 1
+		im_monitors_reserve(v, new_cap)
+	}
+	(cast([^]im.PlatformMonitor)v.Data)[v.Size] = m
+	v.Size += 1
+}
+
 ImGui_ImplSDL3_UpdateMonitors :: proc() {
 	bd := ImGui_ImplSDL3_GetBackendData()
     platform_io := im.GetPlatformIO()
-	// TODO: We should really be using ImVector.resize, push_back etc but Cimgui isn't exposing that for any ImVector<T> types. As
-	// a result, we need to not dlete the dynamic array and let the ~ImVector<> destructor handle it during DeleteContext
-	resize(&bd.platform_io_monitors, 0)
-	platform_io.Monitors.Size = i32(len(bd.platform_io_monitors))
-	platform_io.Monitors.Capacity = i32(cap(bd.platform_io_monitors))
-	platform_io.Monitors.Data = raw_data(bd.platform_io_monitors)
+	platform_io.Monitors.Size = 0   // clear, keep the imgui-owned buffer (imgui's resize(0))
     bd.want_update_monitors = false
 
     display_count : i32
@@ -938,12 +953,8 @@ ImGui_ImplSDL3_UpdateMonitors :: proc() {
         if monitor.DpiScale <= 0.0 {
             continue // Some accessibility applications are declaring virtual monitors with a DPI of 0, see #7902.
 		}
-        //platform_io.Monitors.push_back(monitor)
-		append(&bd.platform_io_monitors, monitor)
+		im_monitors_push(&platform_io.Monitors, monitor)
     }
-	platform_io.Monitors.Size = i32(len(bd.platform_io_monitors))
-	platform_io.Monitors.Capacity = i32(cap(bd.platform_io_monitors))
-	platform_io.Monitors.Data = raw_data(bd.platform_io_monitors)
 
     sdl.free(displays)
 }

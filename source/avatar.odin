@@ -91,7 +91,7 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 		radius = 0.25,
 	}
 
-	shape := b2.CreateCapsuleShape(body, sd, capsule)
+	shape := b2.CreateCapsuleShape(body, sd, &capsule)
 
 	arm_def := b2.DefaultBodyDef()
 	arm_def.type = .kinematicBody

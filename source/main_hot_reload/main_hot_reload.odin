@@ -17,6 +17,10 @@ import "core:os"
 import "core:log"
 import "core:mem"
 
+_ :: mem_tracking
+_ :: log
+_ :: mem
+
 
 main :: proc() {
 	host_exe_allocator := os.heap_allocator()
@@ -27,7 +31,7 @@ when MEMORY_TRACKING {
 }
 	context.allocator = host_exe_allocator
 
-
+	platform_context := config.init()
 	game_api, game_api_ok := hotload_api.load_game_api(0)
 	if !game_api_ok {
 		fmt.println("Failed to load Game API")
@@ -38,35 +42,33 @@ when MEMORY_TRACKING {
 	// and source code lcations (used by the tracking allocator) stick around
 	old_game_apis := make([dynamic]hotload_api.Game_API)
 
-	platform_context := config.startup()
-	raw_hotload_memory : rawptr
-	new_game_api : hotload_api.Game_API
-	hotload_result := hotload_api.Hotload_Result.Launch
-	loop: for {
-		raw_hotload_memory, new_game_api, hotload_result = game_api.hotload_main_loop(raw_hotload_memory, game_api, hotload_result, platform_context)
-		switch hotload_result {
-		case .Launch:
-		case .Hotload: {
+	handle := game_api.init(platform_context)
+	for !game_api.should_quit(handle) {
+		game_api.tick(handle)
+
+		new_game_api, reload_result := hotload_api.check_for_reload(game_api, handle)
+		switch reload_result {
+		case .None:
+		case .Hot:
 			append(&old_game_apis, game_api)
+			game_api.unload_for_hotload(handle)
 			game_api = new_game_api
-		}
-		case .Full_Reset: {
+			game_api.hot_reloaded(handle, platform_context)
+		case .Reset:
+			game_api.unload_for_reset(handle)
+			prev_game_api := game_api
+			game_api = new_game_api
+			game_api.rebuild_memory(handle, platform_context)
+			game_api.hot_reloaded(handle, platform_context)
 			for &old_game_api in old_game_apis {
 				hotload_api.unload_game_api(&old_game_api)
 			}
 			clear(&old_game_apis)
-			hotload_api.unload_game_api(&game_api)
-			game_api = new_game_api
-		}
-		case .Exit: {
-			break loop
-		}
-		case .Load_Failed:
-			log.error("Should not receive .Load_Failed in hotload host exe")
-		case .No_Hotload:
-			log.error("Should not receive .No_Hotload in hotload host exe")
+			hotload_api.unload_game_api(&prev_game_api)
 		}
 	}
+	game_api.shutdown(handle, platform_context)
+	config.shutdown(platform_context)
 
 	when MEMORY_TRACKING {
 		if len(host_exe_tracking_allocator.bad_free_array) > 0 {
@@ -89,8 +91,8 @@ when MEMORY_TRACKING {
 when MEMORY_TRACKING {
 	if mem_tracking.reset_tracking_allocator(&host_exe_tracking_allocator) {
 	}
-}
 	mem.tracking_allocator_destroy(&host_exe_tracking_allocator)
+}
 	fmt.println("exit")
 }
 

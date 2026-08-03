@@ -35,7 +35,7 @@ ball_make :: proc(g_mem : ^Game_Memory, pos: Vec2) -> Ball {
 		radius = 0.50,
 	}
 
-	shape := b2.CreateCircleShape(body, sd, circle)
+	shape := b2.CreateCircleShape(body, sd, &circle)
 
 	return {
 		body = body,

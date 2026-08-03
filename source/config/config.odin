@@ -9,10 +9,11 @@ import "core:path/filepath"
 import "../mem_tracking"
 
 MEMORY_TRACKING :: #config(MEMORY_TRACKING, true)
+_ :: mem_tracking
 
 g_platform_tracking_allocator : mem.Tracking_Allocator
 
-startup :: proc() -> runtime.Context {
+init :: proc() -> runtime.Context {
 	// Set working directory to exe
 	exe_path := os.args[0]
 	exe_dir := filepath.dir(string(exe_path))
