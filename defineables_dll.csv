@@ -2,7 +2,6 @@ Defineable,Default Value,Docs,Location
 DEFAULT_TEMP_ALLOCATOR_BACKING_SIZE,4194304,,C:/phgit/Odin/base/runtime/default_temporary_allocator.odin(3:52)
 _copy_directory_all_native,false,,C:/phgit/Odin/core/os/dir.odin(212:16)
 _copy_file_native,false,,C:/phgit/Odin/core/os/file.odin(547:16)
-VENDOR_BOX2D_ENABLE_AVX2,false,,C:/phgit/Odin/vendor/box2d/box2d.odin(12:47)
 RAYGUI_SHARED,false,,C:/phgit/Odin/vendor/raylib/raygui.odin(5:26)
 RAYGUI_WASM_LIB,"wasm/libraygui.a",,C:/phgit/Odin/vendor/raylib/raygui.odin(6:28)
 RAYLIB_MAX_TEXTFORMAT_BUFFERS,4,,C:/phgit/Odin/vendor/raylib/raylib.odin(93:35)

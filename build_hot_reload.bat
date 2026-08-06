@@ -80,9 +80,10 @@ if not exist "SDL3.dll" (
 
 )
 
-if not exist "box2d.dll" (
-	copy source\box2d\lib\box2d.dll .
-)
+:: box2d is built as a DLL (see source\box2d\build.bat) so its static world state
+:: survives hot reloads. /d copies only when the source is newer than the copy at
+:: root (or it's missing), so the common hot-reload path does nothing.
+xcopy /d /y /q source\box2d\box2d.dll . >nul
 
 :: This is for some
 if "%~1"=="run" (

@@ -1,6 +1,6 @@
 package game
 
-import b2 "vendor:box2d"
+import b2 "box2d"
 import "core:fmt"
 import "core:log"
 import "core:math"
@@ -68,7 +68,8 @@ avatar_make :: proc(g_mem : ^Game_Memory, pos: Vec2, aim_range: f32) -> Avatar {
 	// https://github.com/erincatto/box2d/blob/af12713103083d4f853cfb1c65edaf96b0e43598/samples/sample_joints.cpp#L423 
 	bd.linearDamping = 0.0
 	//bd.angularDamping = 0.7
-	bd.fixedRotation = true
+	// box2d 3.2: fixedRotation is now expressed via motion locks.
+	bd.motionLocks.angularZ = true
 	//bd.linearDamping = 0.0
 	//bd.angularDamping = 0.0
 	bd.name = "Avatar"
@@ -228,12 +229,18 @@ avatar_try_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.
 	b2.Body_SetAngularVelocity(avatar.arm_body_id, 0.0)
 
 	ball_dir := b2.Normalize(ball_pos - arm_pos)
+	// box2d 3.2: prismatic joints are defined by local frames on the base joint def instead of
+	// separate anchors + axis. The slide axis is the x-axis of localFrameA (b2MakeRotFromUnitVector).
+	// The arm (bodyA) rotation was just reset to identity above, so ball_dir is its local axis.
+	// localFrameB.q is set so both frames share the same world orientation at rest (old referenceAngle 0).
+	axis_rot := b2.MakeRotFromUnitVector(ball_dir)
 	prismatic_joint_def := b2.DefaultPrismaticJointDef()
-	prismatic_joint_def.bodyIdA = avatar.arm_body_id
-	prismatic_joint_def.bodyIdB = ball.body
-	prismatic_joint_def.localAnchorA = {}
-	prismatic_joint_def.localAnchorB = {}
-	prismatic_joint_def.localAxisA = ball_dir
+	prismatic_joint_def.base.bodyIdA = avatar.arm_body_id
+	prismatic_joint_def.base.bodyIdB = ball.body
+	prismatic_joint_def.base.localFrameA.p = {}
+	prismatic_joint_def.base.localFrameA.q = axis_rot
+	prismatic_joint_def.base.localFrameB.p = {}
+	prismatic_joint_def.base.localFrameB.q = b2.InvMulRot(b2.Body_GetRotation(ball.body), axis_rot)
 
 	prismatic_joint_def.enableLimit = true
 	prismatic_joint_def.lowerTranslation = 0.10
@@ -249,7 +256,8 @@ avatar_try_possess_ball :: proc(avatar: ^Avatar, ball: ^Ball, physics_world: b2.
 
 avatar_depossess_ball :: proc(avatar: ^Avatar) {
 	log.info("Depossess Ball")
-	b2.DestroyJoint(avatar.prismatic_joint_id)
+	// wakeAttached=true so the ball (and arm) wake and respond to the release.
+	b2.DestroyJoint(avatar.prismatic_joint_id, true)
 	avatar.prismatic_joint_id = {}
 }
 

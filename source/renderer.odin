@@ -4,7 +4,7 @@ import m "core:math"
 import la "core:math/linalg"
 import "core:log"
 import rl "vendor:raylib"
-import b2 "vendor:box2d"
+import b2 "box2d"
 import sdl "vendor:sdl3"
 import "core:fmt"
 

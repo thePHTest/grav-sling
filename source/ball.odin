@@ -1,6 +1,6 @@
 package game
 
-import b2 "vendor:box2d"
+import b2 "box2d"
 
 Ball :: struct {
 	body: b2.BodyId,

@@ -43,6 +43,7 @@ There are three build targets, selected by the `HOTLOAD` config flag:
 | `source/mem_tracking/` | tracking-allocator leak/bad-free reporting helpers |
 | `source/imgui_impl_sdl3.odin`, `imgui_impl_sdlrenderer3.odin` | Dear ImGui backends, ported to Odin, compiled into `game` |
 | `source/b2_debug_draw.odin` | box2d debug-draw `proc "c"` callbacks |
+| `source/box2d/` | vendored box2d bindings + `box2d.dll`/`box2d.lib` and the `build.bat` that produces them (see §6) |
 
 ---
 
@@ -260,15 +261,24 @@ Two details worth knowing:
 
 ---
 
-## 6. box2d — known limitation
+## 6. box2d — vendored as its own DLL
 
-box2d is currently **statically linked** (`vendor:box2d`, a static `.lib`). box2d v3 keeps its world pool in a `static` array *inside the library*, so that state is **per-`game.dll`**.
+box2d v3 keeps its world pool in a `static` array *inside the library*. If box2d were statically linked into `game.dll` (as `vendor:box2d`'s static `.lib` would do), that pool would be **per-`game.dll`** — and a hot reload would strand it:
 
-**Consequence:** on a **hot reload**, `Game_Memory` still holds `WorldId`/`BodyId` handles into the *old* DLL's world pool, but the new `game.dll` has a fresh, empty pool. The first box2d call after a hot reload (e.g. `b2.Body_GetMass(avatar.body)`) reads invalid memory → access violation. A **reset (F5) works**, because `g_mem_reset` calls `b2.CreateWorld` and repopulates the current DLL's pool.
+> **The failure this avoids.** With box2d baked into `game.dll`, after a **hot reload** `Game_Memory` still holds `WorldId`/`BodyId` handles into the *old* DLL's world pool, but the new `game.dll` has a fresh, empty pool. The first box2d call after the reload (e.g. `b2.Body_GetMass(avatar.body)`) reads invalid memory → access violation. (A reset happened to survive, since `g_mem_reset` calls `b2.CreateWorld` and repopulates the current pool — but hot-reloading any code touching box2d handles crashed.)
 
-**Planned fix:** build box2d as its own DLL (`box2d.dll` + import lib), exactly like `SDL3.dll`. Then box2d's world pool lives in a persistent module and the handles survive `game.dll` reloads — no function-pointer forwarding needed; the OS loader resolves `game.dll`'s imports to `box2d.dll` on every load. Until that lands: **hot-reloading code that touches box2d handles crashes; use reset.**
+**Fix (implemented):** box2d is built as its own **DLL** (`box2d.dll` + import `box2d.lib`), exactly like `SDL3.dll`. Its world pool now lives in a persistent module, so `WorldId`/`BodyId` handles survive `game.dll` reloads. No function-pointer forwarding is needed — the OS loader resolves `game.dll`'s box2d imports to the already-loaded `box2d.dll` on every load.
 
-The general principle this illustrates: *state that must outlive a `game.dll` reload has to live in a module that doesn't reload* — the exe (`config`'s platform allocator), or another DLL (`SDL3.dll`, and eventually `box2d.dll`).
+How it's wired up:
+
+- **`deps/box2d/`** — box2d 3.2.0 as a git submodule (the upstream C source).
+- **`source/box2d/build.bat`** — CMake-configures that submodule with `-DBUILD_SHARED_LIBS=ON` and copies the resulting `box2d.dll` + `box2d.lib` into `source/box2d/`. Run this once (and after any submodule bump) to (re)produce the artifacts.
+- **`source/box2d/*.odin`** — the Odin bindings, package `box2d`, with the platform-select static-lib block in `box2d.odin` replaced by a single `foreign import lib { "box2d.lib" }` against the local import lib. The game imports these with `import b2 "box2d"` (not `vendor:box2d`). These were **hand-regenerated for box2d 3.2.0**: they started as Odin's `vendor:box2d` (which targets 3.1.1) and were updated field-by-field against the 3.2.0 headers, because 3.2.0 is unreleased and no upstream `vendor:box2d` exists for it.
+- **`build_hot_reload.bat`** — copies `source/box2d/box2d.dll` next to `game_hot_reload.exe` at build time (same pattern as the SDL3.dll copy), so the loader finds it at runtime.
+
+> **ABI note.** The bindings must match the submodule's box2d version (currently 3.2.0) and precision (`BOX2D_DOUBLE_PRECISION` OFF → f32). Struct layout mismatches surface at runtime as garbage IDs or asserts, **not** at compile time (Odin's linker only matches symbol names). The bindings were validated by comparing `size_of` for ~35 by-value structs against the C headers' `sizeof` (see the size-check approach in the box2d-bindings work). If you bump the submodule, re-diff the changed public headers (`git diff <oldtag> HEAD -- include/box2d/`) and update the bindings + re-run the size check. Note 3.2.0's large-world types: in the default f32 build `b2Pos ≡ b2Vec2` and `b2WorldTransform ≡ b2Transform`, which is why those signature changes are ABI-safe.
+
+The general principle this illustrates: *state that must outlive a `game.dll` reload has to live in a module that doesn't reload* — the exe (`config`'s platform allocator), or another DLL (`SDL3.dll`, `box2d.dll`).
 
 ---
 

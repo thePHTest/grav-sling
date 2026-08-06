@@ -2,13 +2,12 @@ package game
 
 import "core:c"
 import la "core:math/linalg"
-import b2 "vendor:box2d"
+import b2 "box2d"
 import im "deps:odin-imgui"
 
 b2_debug_draw_im_render :: proc(b2_debug_draw : ^b2.DebugDraw) {
 	im.Begin("Box2D Debug Draw Settings")
 	//im.SliderFloat4("Drawing Bounds", cast(^[4]f32)&b2_debug_draw.drawingBounds)
-	im.Checkbox("Use Drawing Bounds", &b2_debug_draw.useDrawingBounds)
 	im.Checkbox("Draw Shapes", &b2_debug_draw.drawShapes)
 	im.Checkbox("Draw Joints", &b2_debug_draw.drawJoints)
 	im.Checkbox("Draw Joint Extras", &b2_debug_draw.drawJointExtras)
@@ -18,9 +17,9 @@ b2_debug_draw_im_render :: proc(b2_debug_draw : ^b2.DebugDraw) {
 	im.Checkbox("Draw Contacts", &b2_debug_draw.drawContacts)
 	im.Checkbox("Draw Graph Colors", &b2_debug_draw.drawGraphColors)
 	im.Checkbox("Draw Contact Normals", &b2_debug_draw.drawContactNormals)
-	im.Checkbox("Draw Contact Impulses", &b2_debug_draw.drawContactImpulses)
+	im.Checkbox("Draw Contact Forces", &b2_debug_draw.drawContactForces)
 	im.Checkbox("Draw Contact Features", &b2_debug_draw.drawContactFeatures)
-	im.Checkbox("Draw Friciton Impulse", &b2_debug_draw.drawFrictionImpulses)
+	im.Checkbox("Draw Friction Forces", &b2_debug_draw.drawFrictionForces)
 	im.Checkbox("Draw Islands", &b2_debug_draw.drawIslands)
 	im.End()
 }
@@ -35,10 +34,16 @@ bgr_to_rgba :: proc(color: u32) -> [4]u8 {
 }
 
 // Draw a closed polygon provided in CCW order.
-b2_debug_draw_polygon :: proc "c" (vertices: [^]Vec2, vertexCount: c.int, color: b2.HexColor, ctx: rawptr) {
+// box2d 3.2 passes vertices in the transform's local frame, so transform them to world space.
+b2_debug_draw_polygon :: proc "c" (transform: b2.Transform, vertices: [^]Vec2, vertexCount: c.int, color: b2.HexColor, ctx: rawptr) {
 	context = g_context
 	ref_def := cast(^Ref_Def)ctx
-	render_polygon(ref_def^, vertices[:vertexCount], bgr_to_rgba(u32(color)))
+	world_verts: [b2.MAX_POLYGON_VERTICES]Vec2
+	n := min(int(vertexCount), b2.MAX_POLYGON_VERTICES)
+	for i in 0..<n {
+		world_verts[i] = b2.TransformPoint(transform, vertices[i])
+	}
+	render_polygon(ref_def^, world_verts[:n], bgr_to_rgba(u32(color)))
 }
 
 // Draw a solid closed polygon provided in CCW order.
@@ -56,10 +61,11 @@ b2_debug_draw_circle :: proc "c" (center: Vec2, radius: f32, color: b2.HexColor,
 }
 
 // Draw a solid circle.
-b2_debug_draw_solid_circle :: proc "c" (transform: b2.Transform, radius: f32, color: b2.HexColor, ctx: rawptr) {
+// box2d 3.2 passes the local center separately; combine it with the transform for the world center.
+b2_debug_draw_solid_circle :: proc "c" (transform: b2.Transform, center: Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
 	context = g_context
 	ref_def := cast(^Ref_Def)ctx
-	render_circle_filled(ref_def^, transform.p, radius, bgr_to_rgba(u32(color)))
+	render_circle_filled(ref_def^, b2.TransformPoint(transform, center), radius, bgr_to_rgba(u32(color)))
 }
 
 // Draw a solid capsule.
@@ -112,6 +118,19 @@ b2_debug_draw_string :: proc "c" (p: Vec2, s: cstring, color: b2.HexColor, ctx: 
 	context = g_context
 	ref_def := cast(^Ref_Def)ctx
 	render_debug_text(ref_def^, p, string(s), bgr_to_rgba(u32(color)))
+}
+
+// Draw a bounding box (new callback in box2d 3.2; box2d calls it with no null check when drawBounds is on).
+b2_debug_draw_bounds :: proc "c" (aabb: b2.AABB, color: b2.HexColor, ctx: rawptr) {
+	context = g_context
+	ref_def := cast(^Ref_Def)ctx
+	c := bgr_to_rgba(u32(color))
+	lo := aabb.lowerBound
+	hi := aabb.upperBound
+	render_line(ref_def^, {lo.x, lo.y}, {hi.x, lo.y}, c)
+	render_line(ref_def^, {hi.x, lo.y}, {hi.x, hi.y}, c)
+	render_line(ref_def^, {hi.x, hi.y}, {lo.x, hi.y}, c)
+	render_line(ref_def^, {lo.x, hi.y}, {lo.x, lo.y}, c)
 }
 
 

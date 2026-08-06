@@ -7,7 +7,7 @@ import "mem_tracking"
 import "config"
 
 import "base:runtime"
-import b2 "vendor:box2d"
+import b2 "box2d"
 //import rl "vendor:raylib"
 import sdl "vendor:sdl3"
 import im "deps:odin-imgui"
@@ -173,10 +173,11 @@ rebind_callbacks :: proc(g_mem: ^Game_Memory) {
 	g_mem.b2_debug_draw.DrawCircleFcn = b2_debug_draw_circle
 	g_mem.b2_debug_draw.DrawSolidCircleFcn = b2_debug_draw_solid_circle
 	g_mem.b2_debug_draw.DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule
-	g_mem.b2_debug_draw.DrawSegmentFcn = b2_debug_draw_segment
+	g_mem.b2_debug_draw.DrawLineFcn = b2_debug_draw_segment
 	g_mem.b2_debug_draw.DrawTransformFcn = b2_debug_draw_transform
 	g_mem.b2_debug_draw.DrawPointFcn = b2_debug_draw_point
 	g_mem.b2_debug_draw.DrawStringFcn = b2_debug_draw_string
+	g_mem.b2_debug_draw.DrawBoundsFcn = b2_debug_draw_bounds
 }
 
 }
@@ -775,32 +776,15 @@ when MEMORY_TRACKING {
 	g_mem.top_wall = wall_make(g_mem, Rect{-field_width/2, field_height/2, field_width, wall_thickness})
 	g_mem.bottom_wall = wall_make(g_mem, Rect{-field_width/2, -field_height/2 - wall_thickness, field_width, wall_thickness})
 
-	g_mem.b2_debug_draw = {
-		DrawPolygonFcn = b2_debug_draw_polygon,
-		DrawSolidPolygonFcn = b2_debug_draw_solid_polygon,
-		DrawCircleFcn = b2_debug_draw_circle,
-		DrawSolidCircleFcn = b2_debug_draw_solid_circle,
-		DrawSolidCapsuleFcn = b2_debug_draw_solid_capsule,
-		DrawSegmentFcn = b2_debug_draw_segment,
-		DrawTransformFcn = b2_debug_draw_transform,
-		DrawPointFcn = b2_debug_draw_point,
-		DrawStringFcn = b2_debug_draw_string,
-		drawingBounds = {},
-		useDrawingBounds = false,
-		drawShapes = true,
-		drawJoints = true,
-		drawJointExtras = false,
-		drawBounds = false,
-		drawMass = false,
-		drawBodyNames = false,
-		drawContacts = false,
-		drawGraphColors = false,
-		drawContactNormals = true,
-		drawContactImpulses = true,
-		drawContactFeatures = false,
-		drawFrictionImpulses = false,
-		drawIslands = false,
-	}
+	// Seed from box2d's default so every callback (including any box2d adds in future versions) gets a
+	// safe no-op, and drawingBounds/forceScale/jointScale get sensible defaults. Then bind our real
+	// callbacks via rebind_callbacks and override just the draw flags we want on.
+	// (b2DefaultDebugDraw already sets drawShapes = true and drawingBounds to the whole world.)
+	g_mem.b2_debug_draw = b2.DefaultDebugDraw()
+	rebind_callbacks(g_mem)
+	g_mem.b2_debug_draw.drawJoints = true
+	g_mem.b2_debug_draw.drawContactNormals = true
+	g_mem.b2_debug_draw.drawContactForces = true
 
 	log.info("g_mem_reset() complete.")
 	return g_mem
