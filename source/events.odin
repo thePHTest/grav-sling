@@ -459,6 +459,10 @@ gamepad_is_button_pressed :: proc(gamepad : Gamepad_State, button : EGamepadButt
 	return gamepad.buttons_pressed[button]
 }
 
+gamepad_is_button_down :: proc(gamepad : Gamepad_State, button : EGamepadButton) -> bool {
+	return gamepad.buttons_down[button]
+}
+
 gamepad_axis_normalize :: proc(gamepad : Gamepad_State, axis : EGamepadAxis) -> f32 {
 	return f32(gamepad.axes[axis].pos) / f32(max(i16))
 }
