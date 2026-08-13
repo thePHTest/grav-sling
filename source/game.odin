@@ -250,8 +250,14 @@ Game_Memory :: struct {
 	finished: bool,
 
 	allocator : runtime.Allocator,
+
+	control_scheme : Control_Scheme,
 }
 
+Control_Scheme :: enum {
+	Polar,
+	TriggerReel,
+}
 
 
 Camera2D :: struct {
@@ -785,6 +791,8 @@ when MEMORY_TRACKING {
 	g_mem.b2_debug_draw.drawJoints = true
 	g_mem.b2_debug_draw.drawContactNormals = true
 	g_mem.b2_debug_draw.drawContactForces = true
+
+	g_mem.control_scheme = .Polar
 
 	log.info("g_mem_reset() complete.")
 	return g_mem

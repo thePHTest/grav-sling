@@ -36,7 +36,6 @@ Avatar :: struct {
 	arm_body_id: b2.BodyId,
 	prismatic_joint_id: b2.JointId,
 
-	right_stick_pos : Vec2,
 	arm_angular_velocity: f32, // integrated orbit speed, rad/s
 	tether_length: f32, // current spring target in meters
 
@@ -358,15 +357,15 @@ avatar_tick_pre_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx :
 			dt := f32(sim_ctx.dt)
 			STICK_DEADZONE :: 0.15
 
-			if gamepad_is_button_down(g_gamepad, .LEFT_SHOULDER) {
-				avatar.right_stick_pos = Vec2{gamepad_axis_normalize(g_gamepad, .RIGHTX), gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0}
-			}
-			stick := avatar.right_stick_pos
+			stick := Vec2{gamepad_axis_normalize(g_gamepad, .RIGHTX), gamepad_axis_normalize(g_gamepad, .RIGHTY) * -1.0}
 
 			mag := la.length(stick)
-			if mag > 1.0 {
-				stick /= mag
-				mag = 1.0
+
+			if g_mem.control_scheme == .Polar {
+				if mag > 1.0 {
+					stick /= mag
+					mag = 1.0
+				}
 			}
 
 			target_len := avatar.tether_min
@@ -381,10 +380,6 @@ avatar_tick_pre_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx :
 				target_rot := b2.MakeRotFromUnitVector(dir)
 				diff := b2.RelativeAngle(target_rot, b2.Body_GetRotation(avatar.arm_body_id)) // signed [-pi, pi]
 
-				// Close that angle
-				// and ramp toward it so the arm accelerates instead of jerking
-				// Brake. Fastest we can be going and brake to a stop exactly at the target
-				// (constant decel profile). Caps the flick so it eases in instead of overshooting.
 				brake_speed := math.sqrt(2.0 * avatar.orbit_decel * abs(diff))
 				max_w := min(avatar.orbit_max_speed, brake_speed)
 				desired_w := clamp(diff / dt, -max_w, max_w)
@@ -396,8 +391,15 @@ avatar_tick_pre_physics :: proc(g_mem : ^Game_Memory, avatar: ^Avatar, sim_ctx :
 				}
 				avatar.arm_angular_velocity = move_toward(avatar.arm_angular_velocity, desired_w, rate * dt)
 
-				strength := (mag - STICK_DEADZONE) / (1.0 - STICK_DEADZONE)
-				target_len = math.lerp(avatar.tether_min, avatar.tether_max, strength)
+				if g_mem.control_scheme == .Polar {
+					strength := (mag - STICK_DEADZONE) / (1.0 - STICK_DEADZONE)
+					target_len = math.lerp(avatar.tether_min, avatar.tether_max, strength)
+				}
+			}
+
+			if g_mem.control_scheme == .TriggerReel {
+				reach := clamp(gamepad_axis_normalize(g_gamepad, .LEFT_TRIGGER), 0.0, 1.0)
+				target_len = math.lerp(avatar.tether_min, avatar.tether_max, reach)
 			}
 
 			// reel speed caps how fast the tether target moves. The spring (hertz/damping) then
